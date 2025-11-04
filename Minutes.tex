@@ -1,140 +1,141 @@
-%%
-%% This is file `./samples/minutes.tex',
-%% generated with the docstrip utility.
-%%
-%% The original source files were:
-%%
-%% meetingmins.dtx  (with options: `minutes')
-%% ----------------------------------------------------------------------
-%% 
-%% meetingmins - A LaTeX class for formatting minutes of meetings
-%% 
-%% Copyright (C) 2011-2013 by Brian D. Beitzel <brian@beitzel.com>
-%% 
-%% This work may be distributed and/or modified under the
-%% conditions of the LaTeX Project Public License (LPPL), either
-%% version 1.3c of this license or (at your option) any later
-%% version.  The latest version of this license is in the file:
-%% 
-%% http://www.latex-project.org/lppl.txt
-%% 
-%% Users may freely modify these files without permission, as long as the
-%% copyright line and this statement are maintained intact.
-%% 
-%% ----------------------------------------------------------------------
-%% 
-\documentclass[11pt]{meetingmins}
+% book example for classicthesis.sty
+\documentclass[8pt,a5paper,openany,oneside,footinclude=true,headinclude=true]{scrbook} % KOMA-Script book
+\usepackage[T1]{fontenc}                
+\usepackage{lipsum}
+\usepackage[linedheaders,parts,pdfspacing, style=arsclassica]{classicthesis} % ,manychapters
+%\usepackage[osf]{libertine}
+\usepackage{amsthm}
 
-%% Optionally, the following text could be set in the file
-%% department.min in this folder, then add the option 'department'
-%% in the \documentclass line of this .tex file:
-%%\setcommittee{Department of Instruction}
-%%
-%%\setmembers{
-%%  \chair{B.~Smart},
-%%  B.~Brave,
-%%  D.~Claire,
-%%  B.~Gone
-%%}
-
-\setcommittee{Department of Instruction}
-
-\setmembers{
-  \chair{B.~Smart},
-  B.~Brave,
-  D.~Claire,
-  B.~Gone
-}
-
-\setdate{October 5, 2011}
-
-\setpresent{
-  \chair{B.~Smart},
-  B.~Brave,
-  D.~Claire
-}
-
-\absent{B.~Gone \textit{(sabbatical)}}
-
-\alsopresent{B.~There}
 
 \begin{document}
-\maketitle
+%	\pagestyle{scrheadings}
+%	\manualmark
+%	\markboth{\spacedlowsmallcaps{\contentsname}}{\spacedlowsmallcaps{\contentsname}}
+	\tableofcontents 
 
-\section{Announcements}
-\begin{hiddenitems}
-\item
-The dean is coming today.
+%	\automark[section]{chapter}
+%	\renewcommand{\chaptermark}[1]{\markboth{\spacedlowsmallcaps{#1}}{\spacedlowsmallcaps{#1}}}
+%	\renewcommand{\sectionmark}[1]{\markright{\thesection\enspace\spacedlowsmallcaps{#1}}}
 
-\item
-The dean has canceled.
+    % use \cleardoublepage here to avoid problems with pdfbookmark
+    %\cleardoublepage\part{Test Part}
+    \cleardoublepage\chapter{October 14, 2025}
+		\newtheoremstyle{note}% hnamei 
+		{3pt}% hSpace abovei 
+		{3pt}% hSpace belowi note
+		{}% hBody fonti 
+		{}% hIndent amounti1
+		{\itshape}% hTheorem head fonti 
+%		{\spacedlowsmallcaps}%
+		{:}% hPunctuation after theorem headi 
+		{.5em}% hSpace after theorem headi2
+		{}%
+		% \theoremstyle{note}
+  %   \newtheorem{note}{Definition}
+		% \begin{note}
+		% Here is a new definition
+		% \end{note}
 
-\end{hiddenitems}
+    
+		% \begin{proof}
+		% Here is my proof:
+		% \[
+		% a^2 + b^2 = c^2 \qedhere
+		% \]
+		% \end{proof}    
+        \textit{Attendees:} Nina Dresing, Rami Vainio, Jan Gieseler, Annamaria Fedeli, Eeli Kinnunen, Jax T. Lang.\\
 
-\section{Committee Reports}
+        \begin{enumerate}
+            \item Tools due with December deliverable right before Christmas (Except Eeli's).
+            \item Meeting every week on Tuesday at 9:30 am, alternating between Annamaria and Jax. Starting with Jax on 4 November.
+        \end{enumerate}
 
-\subsection{College-wide Committees}
-\subsubsection{Library}
-The library still has books that no one has read.
+        \section{Task 5-3}
 
-\subsubsection{Curriculum {\rm (D.~Claire)}}
-\begin{hiddensubitems}
-\item
-There is widespread interest in reforming the curriculum.
+        \begin{itemize}
+            \item ND wants to include SolarMACH (plots, 3D, and coordinate table).
+            \item RV wants to provide pre-selected energy-species combos: 25-40 MeV.
+            \item Keep the radial scaling, intercalibration, and background subtracting, but allow the user to input / change the values.
+            \item Plots required: Timeseries, Gaussian gif images.
+            \item Test the tool on the radio group and Farwa.
+            \item Code should be almost entirely hidden, save for the user inputs and 1 main running function.
+        \end{itemize}
+        \textbf{Latitudinal Assessment:} Fit the ecliptic plane spacecraft then plot solar orbiter in the gaussian plots to see the offset. \\
+        \textit{Jax:} Can we get a Bepi loader in time for this? We need to have 4 or more data points to fit the gaussian.
 
-\item
-Unfortunately, no one seems interested in participating on the
-curriculum reform committee.
-\end{hiddensubitems}
+    \vspace{0.5cm}
 
-\subsection{Department Committees}
-\subsubsection{Personnel}
-No one can have a raise this year.
+        \textbf{Exclude:}
+        \begin{enumerate}
+            \item Model inputs and models.
+            \item Linear fits to gaussian results.
+            \item Contamination regions.
+            \item Smoothing.
+            \item External data.
+        \end{enumerate}
+        
+    \cleardoublepage
+    \chapter{November 4, 2025}
 
-\subsubsection{Assistant Professor Search}
-We are looking for someone who will do a lot for very little money.
+    \textit{Attendees:} Nina Dresing, Jan Gieseler, Jax T. Lang.\\
 
-\section{Old Business}
-\begin{items}
-\item
-\priormins
-\end{items}
+        \begin{enumerate}
+            \item Focus on 14~MeV proton channels because they are smoother and easier to work with. Can change this later.
+            \item Make the flare input optional and only consider spacecraft footprint longitude in calculations.
+        \end{enumerate}
 
-\section{New Business}
-\begin{items}
-\item
-We will teach classes next semester.
+        The notebook should in the following order:
+        \begin{enumerate}
+            \item User inputs event details.
+            \begin{itemize}
+                \item \textit{Optional: Flare location for reference in plots.}
+            \end{itemize}
+            \item Plots and prints SolarMACH details.
+            \item Load spacecraft data:
+            \begin{enumerate}
+                \item User confirms which Spacecraft to include. (Done as checkboxes with all of them ticked as default. If unticked, confirm that they're still included in final plot but not the fitting process.)
+                \item User confirms options for channels in a dictionary with intercalibration factors. (Red box to warn users about changing the values themselves).
+                \item User chooses the resampling time, default: 15 minutes.
+                \item Intercalibration. User can opt out with True/False.
+                \item Radial Scaling. User can opt out with True/False.
+            \end{enumerate}
+            \item Plot time series and allow user to define background for background subtraction.
+            \item Calculate the Gaussian Fits 
+            \begin{enumerate}
+                \item First with \texttt{scipy.curve\_fit}, then with \texttt{scipy.ODR}, with the uncertainties.
+                \item Save figures at each timestep into a subfolder as it runs.\\
+                Gaussian curve left, intensity time series to the right with vertical line to indicate time step.
+            \end{enumerate}
+            \item Plot final time series with 3 rows of plots:
+            \begin{enumerate}
+                \item Intensity time series
+                \item Gaussian center
+                \item Gaussian width
+            \end{enumerate}
+            \item \textit{(Optional)} Gif of the gaussian figs saved in the sub folder.
+            \item \textit{To do later:} Latitude fits with Bepi data. Try set up using manually loaded Bepi-SIXS data for now.
+        \end{enumerate}
 
-\item
-We will do research next semester.
-\end{items}
+    \textbf{Deadline}: Week before Christmas, \textbf{Jax internal deadline: 1st week of December.}\\
 
-\vspace{1em}
-\nextmeeting{Wednesday, October 19, at 3:00}
+    Jax to create a public github repo to share with others as we go.
+    
+    
+    \chapter{Next Chapter}
+    \textit{Attendees:} Jax T Lang. \\
+
+    \begin{enumerate}
+        \item 
+    \end{enumerate}
+
+%	\include{multiToC}
+
+    % \appendix
+    % \cleardoublepage\part{Appendix}
+    % \chapter{Appendix Chapter}
+    % \lipsum[1]
+    
+    % \section{A Section}
+    % \lipsum[1]
 
 \end{document}
-%% 
-%% Copyright (C) 2011-2013 by Brian D. Beitzel <brian@beitzel.com>
-%% 
-%% This work may be distributed and/or modified under the
-%% conditions of the LaTeX Project Public License (LPPL), either
-%% version 1.3c of this license or (at your option) any later
-%% version.  The latest version of this license is in the file:
-%% 
-%% http://www.latex-project.org/lppl.txt
-%% 
-%% Users may freely modify these files without permission, as long as the
-%% copyright line and this statement are maintained intact.
-%% 
-%% This work is "maintained" (as per LPPL maintenance status) by
-%% Brian D. Beitzel.
-%% 
-%% This work consists of the file  meetingmins.dtx
-%% and the derived files           meetingmins.cls,
-%%                                 sampleminutes.tex,
-%%                                 department.min,
-%%                                 README.txt, and
-%%                                 meetingmins.pdf.
-%% 
-%%
-%% End of file `./samples/minutes.tex'.
