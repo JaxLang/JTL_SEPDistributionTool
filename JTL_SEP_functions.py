@@ -281,6 +281,8 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # Resample
         psp = psp_df2.resample(resampling).mean()
         psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
+        print("MERGING DF'S BUT ONES A DATETIME AND THE OTHERS AN OBJECT, RETURN HERE TO FIX BEFORE CONTINUING")
+        jax=input()
 
 
         # Add to the collection
