@@ -55,10 +55,10 @@ def solarmach_basic(startdate, data_path, coord_sys='Stonyhurst', source_locatio
     
 # 2. loop to get sc locations over time
 def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sys='Stonyhurst'):
-    filename = f'{data_path}/SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
+    filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
-        sm_loop = pd.read_csv(filename, index_col='Time')
+        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1])
         return sm_loop
 
     # Set up the time list to iterate through
@@ -100,7 +100,7 @@ def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sy
             foot_long_error.append( foot_calc[1] )
 
         df1[obs] = {}
-        df1[obs]['r dist'] = r_dist
+        df1[obs]['r_dist'] = r_dist
         df1[obs]['vsw'] = vsw
         df1[obs]['foot_long'] = foot_long
         df1[obs]['foot_long_error'] = foot_long_error
@@ -115,7 +115,7 @@ def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sy
 
 
     # Save to csv
-    df2.to_csv(filename) 
+    df2.to_csv(data_path+filename)
 
     return df2
     
@@ -215,6 +215,17 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         - header1: sc-ins
         - [Flux, Uncertainty, Radial Distance, Longitude]"""
 
+    # Check if the file is already made and just load that one
+    filename = f"SEP_intensities_{dates[0].strftime("%d%m%Y")}.csv"
+    print(filename)
+    print(data_path)
+    print(os.listdir(data_path))
+    jax=input('Yes?')
+    if filename in os.listdir(data_path):
+        sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True)
+        return sc_df
+
+
     # Download solarmach data for the same intervals
     sm_df = solarmach_loop(spacecraft, dates, data_path, source_loc=reference_loc, coord_sys='Stonyhurst')
     print(sm_df)
@@ -261,18 +272,19 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         for tt in psp_df.index:
             flux_arr.append( np.nanmean([psp_df.loc[tt, f"A_F_{bin_label}"], psp_df.loc[tt, f"B_F_{bin_label}"]]) )
             unc_arr.append( np.nanmean([psp_df.loc[tt, f"A_Func_{bin_label}"], psp_df.loc[tt, f"B_Func_{bin_label}"]]) )
-        psp_df1["PSP--Flux"] = flux_arr
-        psp_df1["PSP--Uncertainty"] = unc_arr
+        psp_df1["Flux"] = flux_arr
+        psp_df1["Uncertainty"] = unc_arr
 
         psp_df2 = pd.DataFrame.from_dict(psp_df1)
         psp_df2.set_index('Time', inplace=True)
 
         # Resample
         psp = psp_df2.resample(resampling).mean()
+        psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
 
 
         # Add to the collection
-        sc_dict['PSP-HET'] = psp
+        sc_dict['PSP'] = psp_sm
 
 
 
@@ -304,18 +316,18 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
         # Merge the channels
         soho_df1 = {'Time': soho_df.index}
-        soho_df1["SOHO--Flux"] = weighted_bin_merge(soho_df, 'soho', 'p', bin_list, 'PH_', bin_width)
-        soho_df1["SOHO--Uncertainty"] = weighted_bin_merge(soho_df, 'soho', 'p', bin_list, 'Uncert_', bin_width)
+        soho_df1["Flux"] = weighted_bin_merge(soho_df, 'soho', 'p', bin_list, 'PH_', bin_width)
+        soho_df1["Uncertainty"] = weighted_bin_merge(soho_df, 'soho', 'p', bin_list, 'Uncert_', bin_width)
 
         soho_df2 = pd.DataFrame.from_dict(soho_df1)
         soho_df2.set_index('Time', inplace=True)
 
         # Resample
         soho = soho_df2.resample(resampling).mean()
-
+        soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
 
         # Add to the collection
-        sc_dict['SOHO-HED'] = soho
+        sc_dict['SOHO'] = soho_sm
 
     if 'stereo-a' in spacecraft:
         sta_df, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
@@ -340,17 +352,18 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
         # Merge the channels
         sta_df1 = {'Time': sta_df.index}
-        sta_df1["STA--Flux"] = weighted_bin_merge(sta_df, 'sta', 'p', bin_list, 'Proton_Flux_', bin_width)
-        sta_df1["STA--Uncertainty"] = weighted_bin_merge(sta_df, 'sta', 'p', bin_list, 'Proton_Sigma_', bin_width)
+        sta_df1["Flux"] = weighted_bin_merge(sta_df, 'sta', 'p', bin_list, 'Proton_Flux_', bin_width)
+        sta_df1["Uncertainty"] = weighted_bin_merge(sta_df, 'sta', 'p', bin_list, 'Proton_Sigma_', bin_width)
 
         sta_df2 = pd.DataFrame.from_dict(sta_df1)
         sta_df2.set_index('Time', inplace=True)
 
         # Resample
         sta = sta_df2.resample(resampling).mean()
+        sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
 
         # Add to the collection
-        sc_dict['STEREO-A HET'] = sta
+        sc_dict['STEREO-A'] = sta_sm
 
 
     if 'solar orbiter' in spacecraft:
@@ -373,22 +386,26 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
         # Merge the channels
         solo_df2 = {'Time': solo_df1.index}
-        solo_df2['SolO--Flux'] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
-        solo_df2['SolO--Uncertainty'] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
+        solo_df2["Flux"] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
+        solo_df2["Uncertainty"] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
 
         solo_df3 = pd.DataFrame.from_dict(solo_df2)
         solo_df3.set_index('Time', inplace=True)
 
         # Resample
         solo = solo_df3.resample(resampling).mean()
+        solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
 
         # Add to the collection
-        sc_dict['Solar Orbiter - EPD/HET'] = solo
+        sc_dict['Solar Orbiter'] = solo_sm
 
 
     # Merge all the relevant columns into one df
     print(sc_dict)
-    sc_df = pd.concat(sc_dict.values(), axis=1, join='outer')
+
+
+    sc_df = pd.concat(sc_dict, axis=1, join='outer')
+    sc_df.to_csv(data_path + filename)
 
     return sc_df
 
@@ -396,13 +413,64 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 ################################################
 ## Inter-calibration
 ################################################
+def intercalibration_calculation(df, observer_metadict, data_path, dates):
+    # Iterate through the observers (first header in df)
+    for obs, meta_data in observer_metadict.items():
+        factor = meta_data['intercalibration'] # extract the intercalibration factor
 
+        # Apply the scaling to the Flux and Uncertainty columns
+        for col in ['Flux','Uncertainty']: # Both are calculated the same
+            df[(obs, col)] *= factor
+
+    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv") # Save for sanity checks
+
+    return df
 
 ################################################
 ## Radial Scaling
 ################################################
+def radial_scaling_calculation(df, data_path, scaling_values, dates):
+    a = scaling_values[0]
+    b = scaling_values[1]
+
+    # Iterate through observers
+    for obs, df_obs in df.groupby(level=0, axis=1): # returning the observer and their specific df
+
+        for t in df_obs.index:
+            # Scale the flux
+            f_rscld = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] ** a)
+            df.loc[t, (obs, 'Flux')] = f_rscld
+
+            # Scale the uncertainty
+            ## Find the difference from the boundaries
+            unc_plus = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] **(a+b))
+            unc_limit_plus = abs(f_rscld - unc_plus)
+            unc_minus = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] **(a-b))
+            unc_limit_minus = abs(f_rscld - unc_minus)
+
+            if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
+                chosen_unc_limit = unc_limit_plus
+            elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
+                chosen_unc_limit = unc_limit_minus
+            else:
+                print("There's a problem with the limits")
+                print("Scaled Flux: ", f_rscld)
+                print("Unc plus: ", unc_limit_plus)
+                print("Unc minus: ", unc_limit_minus)
+                jax = input('Continue? ')
+                chosen_unc_limit = np.nan
+
+            ## Find the calculated scaled uncertainty
+            unc_calculated = df_obs.loc[t, 'Uncertainty'] * (df_obs.loc[t, 'r_dist'] ** a)
+
+            ## Merge both results for the final scaled uncertainty
+            unc_final = np.sqrt((unc_calculated)**2 + (chosen_unc_limit)**2)
+
+            df.loc[t, (obs, 'Uncertainty')] = unc_final
 
 
+    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv") # Save for sanity checks
+    return df
 
 ################################################
 ## Gaussian fitting
