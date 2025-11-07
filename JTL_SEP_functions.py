@@ -21,6 +21,36 @@ from solo_epd_loader import epd_load
 
 from solarmach import SolarMACH
 
+mrkr_settings = {'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
+                 'SOHO': {'marker': 'o', 'color': 'darkgreen', 'label': 'SOHO-ERNE/HED'},
+                 'STEREO-A': {'marker': '^', 'color': 'red', 'label': 'STEREO-A/HET'},
+                 'PSP':  {'marker': 'p', 'color': 'purple', 'label': 'Parker Solar Probe/HET'},
+                 #'Wind': {'marker': '*', 'color': 'slategray', 'label': 'Wind'},
+                 #'STEREO-B': {'marker': 'v', 'color': 'blue', 'label': 'STEREO-B'},
+                 #'BepiColombo': {'marker': 'd', 'color': 'orange', 'label': 'BepiColombo'}
+                }
+
+
+plt.style.use('seaborn-v0_8-paper')
+mpl.rcParams.update({'font.size': 10,
+                     'axes.titlesize': 10, 'axes.labelsize': 10,
+                     'figure.labelsize': 10,
+                     'lines.markersize': 8, 'lines.linewidth': 1.4,
+                     'legend.fontsize': 6, 'legend.title_fontsize': 7,
+                     'savefig.transparent': False, 'savefig.bbox': 'tight',
+                     'axes.grid': False, 'ytick.minor.visible': False})
+
+LEGND_LOC = (1.02, 1.02)
+DEGREE_TEXT = r'$^{\circ}$'
+SIGMA_TEXT = r'$\sigma$'
+LAMBDAPERP_TEXT = r'$\lambda_{\perp}$'
+LAMBDAPLL_TEXT = r'$\lambda_{\parallel}$'
+PM_SYMB = r"$\pm$"
+SQR = r"$^2$"
+
+
+
+
 ## Solar mach
 # 1. initial plot to determine if event is good
 def solarmach_basic(startdate, data_path, coord_sys='Stonyhurst', source_location=None):
@@ -58,11 +88,11 @@ def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sy
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
-        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1])
+        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1], parse_dates=True)
         return sm_loop
 
     # Set up the time list to iterate through
-    starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour, 0)
+    starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour-5, 0) #Gathering enough background too
     date_list = pd.date_range(starting_time, dates[1], freq='15min')
 
     sm_df = {}
@@ -217,19 +247,20 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
     # Check if the file is already made and just load that one
     filename = f"SEP_intensities_{dates[0].strftime("%d%m%Y")}.csv"
-    print(filename)
-    print(data_path)
-    print(os.listdir(data_path))
-    jax=input('Yes?')
+    #print(filename)
+    #print(data_path)
+    #print(os.listdir(data_path))
+    #jax=input('Yes?')
     if filename in os.listdir(data_path):
+        # Jan: Potential issue with zeroes and nans both saved as zero.
         sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True)
         return sc_df
 
 
     # Download solarmach data for the same intervals
     sm_df = solarmach_loop(spacecraft, dates, data_path, source_loc=reference_loc, coord_sys='Stonyhurst')
-    print(sm_df)
-    jax=input('Continue?')
+    #print(sm_df)
+    #jax=input('Continue?')
 
     
     # Download the data and load into a dictionary with the key as the spacecraft-instrument label
@@ -281,9 +312,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # Resample
         psp = psp_df2.resample(resampling).mean()
         psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
-        print("MERGING DF'S BUT ONES A DATETIME AND THE OTHERS AN OBJECT, RETURN HERE TO FIX BEFORE CONTINUING")
-        jax=input()
-
+        
 
         # Add to the collection
         sc_dict['PSP'] = psp_sm
@@ -422,6 +451,8 @@ def intercalibration_calculation(df, observer_metadict, data_path, dates):
 
         # Apply the scaling to the Flux and Uncertainty columns
         for col in ['Flux','Uncertainty']: # Both are calculated the same
+            #print(df[(obs,col)])
+            #jax=input('huh?')
             df[(obs, col)] *= factor
 
     df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv") # Save for sanity checks
@@ -431,7 +462,9 @@ def intercalibration_calculation(df, observer_metadict, data_path, dates):
 ################################################
 ## Radial Scaling
 ################################################
-def radial_scaling_calculation(df, data_path, scaling_values, dates):
+def radial_scaling_calculation(df0, data_path, scaling_values, dates):
+    df = df0.copy(deep=True) # so it doesnt mess with the OG df's
+    
     a = scaling_values[0]
     b = scaling_values[1]
 
@@ -439,35 +472,44 @@ def radial_scaling_calculation(df, data_path, scaling_values, dates):
     for obs, df_obs in df.groupby(level=0, axis=1): # returning the observer and their specific df
 
         for t in df_obs.index:
-            # Scale the flux
-            f_rscld = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] ** a)
-            df.loc[t, (obs, 'Flux')] = f_rscld
-
-            # Scale the uncertainty
-            ## Find the difference from the boundaries
-            unc_plus = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] **(a+b))
-            unc_limit_plus = abs(f_rscld - unc_plus)
-            unc_minus = df_obs.loc[t, 'Flux'] * (df_obs.loc[t, 'r_dist'] **(a-b))
-            unc_limit_minus = abs(f_rscld - unc_minus)
-
-            if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
-                chosen_unc_limit = unc_limit_plus
-            elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
-                chosen_unc_limit = unc_limit_minus
+            #print(df_obs.loc[t, (obs,'Flux')])
+            if pd.isna(df_obs.loc[t, (obs,'Flux')]) or pd.isna(df_obs.loc[t, (obs,'r_dist')])\
+            or (df_obs.loc[t, (obs,'Flux')]==0) or (df_obs.loc[t, (obs,'r_dist')]==0):
+                f_rscld = np.nan
+                unc_final = np.nan
+            
             else:
-                print("There's a problem with the limits")
-                print("Scaled Flux: ", f_rscld)
-                print("Unc plus: ", unc_limit_plus)
-                print("Unc minus: ", unc_limit_minus)
-                jax = input('Continue? ')
-                chosen_unc_limit = np.nan
+                # Scale the flux
+                f_rscld = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] ** a)
 
-            ## Find the calculated scaled uncertainty
-            unc_calculated = df_obs.loc[t, 'Uncertainty'] * (df_obs.loc[t, 'r_dist'] ** a)
+                # Scale the uncertainty
+                ## Find the difference from the boundaries
+                unc_plus = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] **(a+b))
+                unc_limit_plus = abs(f_rscld - unc_plus)
+                unc_minus = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] **(a-b))
+                unc_limit_minus = abs(f_rscld - unc_minus)
+    
+                if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
+                    chosen_unc_limit = unc_limit_plus
+                elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
+                    chosen_unc_limit = unc_limit_minus
+                else:
+                    print("There's a problem with the limits")
+                    print("OG flux: ", df_obs.loc[t, (obs,'Flux')])
+                    print("OG rad: ", df_obs.loc[t, (obs,'r_dist')])
+                    print("Scaled Flux: ", f_rscld)
+                    print("Unc plus: ", unc_limit_plus)
+                    print("Unc minus: ", unc_limit_minus)
+                    jax = input('Continue? ')
+                    chosen_unc_limit = np.nan
+    
+                ## Find the calculated scaled uncertainty
+                unc_calculated = df_obs.loc[t, (obs,'Uncertainty')] * (df_obs.loc[t, (obs,'r_dist')] ** a)
+    
+                ## Merge both results for the final scaled uncertainty
+                unc_final = np.sqrt((unc_calculated)**2 + (chosen_unc_limit)**2)
 
-            ## Merge both results for the final scaled uncertainty
-            unc_final = np.sqrt((unc_calculated)**2 + (chosen_unc_limit)**2)
-
+            df.loc[t, (obs, 'Flux')] = f_rscld
             df.loc[t, (obs, 'Uncertainty')] = unc_final
 
 
@@ -484,3 +526,55 @@ def radial_scaling_calculation(df, data_path, scaling_values, dates):
 ## Plotters
 ################################################
 
+def plot_timeseries_result(df, data_path, dates, background_window=[]):
+    # Determine how many subplots are needed
+    obs = set([col[0] for col in df.columns if len(col)==2])
+    obs = list(obs)
+    print(obs)
+
+    fig, ax = plt.subplots(len(obs), 1, figsize=[5, len(obs)+2.5], dpi=300, sharex=True)
+    fig.subplots_adjust(hspace=0.02)
+
+    # Title
+    ax[0].set_title(dates[0].strftime("%H:%M - %d %b, %Y"), pad=9, loc='left')
+    fig.supylabel('Intensity')
+
+    for n in range(len(obs)):
+        sc = obs[n]
+        mrkr = mrkr_settings[sc]
+
+        # Show the event start time
+        ax[n].axvline(x=dates[0], color='k', linestyle='dashed', linewidth=0.5)
+
+        # Show the background window
+        if len(background_window) > 1:
+            ax[n].axvspan(background_window[0], background_window[1], alpha=0.2, color='grey')
+            bg_txt = f'Background window:\n{background_window[0].strftime("%H:%M")} - {background_window[0].strftime("%H:%M %d %b, %Y")}'
+            box_obj = AnchoredText(bg_txt, frameon=True, loc='lower right', pad=0.5, prop={'size':7})
+            plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
+            ax[0].add_artist(box_obj)
+
+        # Plot the data
+        ax[n].semilogy(df[(sc, 'Flux')], color=mrkr['color'], label=mrkr['label'], linestyle='solid')
+        ax[n].fill_between(x = df.index,
+                           y1= df[(sc, 'Flux')] - df[(sc, 'Uncertainty')],
+                           y2= df[(sc, 'Flux')] + df[(sc, 'Uncertainty')],
+                           alpha=0.3, color=mrkr['color'])
+        ax[n].legend(loc='upper right', alignment='left')
+        ax[n].yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=3))
+        ax[n].minorticks_on()
+
+    xmin = dates[0] - dt.timedelta(hours=5)
+    xmax = dates[0] + dt.timedelta(hours=22)
+    ax[0].set_xlim([xmin,xmax])
+    locator = mpl.dates.AutoDateLocator(minticks=3, maxticks=6)
+    ax[n-1].xaxis.set(major_locator=locator, )
+    ax[n-1].xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(locator, show_offset=False))
+
+    label=''
+    if input('Save the file? ')=='y':
+        label = input('Save file key word: ')
+    plt.savefig(data_path+f'SEP_Intensities_{dates[0].strftime("%d%m%y")}_{label}.png')
+    plt.show()
+    
+        
