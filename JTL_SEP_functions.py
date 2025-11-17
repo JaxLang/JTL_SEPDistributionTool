@@ -49,6 +49,8 @@ PM_SYMB = r"$\pm$"
 SQR = r"$^2$"
 
 
+test_date = dt.datetime(2021,5,29,2,30)
+
 
 
 ## Solar mach
@@ -59,7 +61,7 @@ def solarmach_basic(startdate, data_path, coord_sys='Stonyhurst', source_locatio
     print(os.listdir(data_path))
     if filename+'.csv' in os.listdir(data_path):
         print('WIN')
-        smtable = pd.read_csv(data_path+filename+'.csv', index_col='Spacecraft/Body')
+        smtable = pd.read_csv(data_path+filename+'.csv', index_col='Spacecraft/Body', na_values='nan')
         return smtable
         
     datetime_parse = parse_time(startdate)
@@ -88,7 +90,7 @@ def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sy
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
-        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1], parse_dates=True)
+        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1], parse_dates=True, na_values='nan')
         return sm_loop
 
     # Set up the time list to iterate through
@@ -217,7 +219,7 @@ def weighted_bin_merge(df0, spacecraft, species, channel_list, header_label, bin
     else:
         species = 'electrons'
 
-
+    full_channel_list = range(channel_list[0], channel_list[1]+1)
     time_indx = []
     merged_flux = []
     for i in df0.index:
@@ -225,11 +227,11 @@ def weighted_bin_merge(df0, spacecraft, species, channel_list, header_label, bin
 
         row_flux = 0
         row_div = 0
-        for n in range(len(channel_list)):
+        for n in range(len(full_channel_list)):
             if type(header_label)==list: #If its a double-layered header
-                row_flux = row_flux + ( df0.loc[i, (header_label[0], f"{header_label[1]}{channel_list[n]}")] ) * binwidths[n]
+                row_flux = row_flux + ( df0.loc[i, (header_label[0], f"{header_label[1]}{full_channel_list[n]}")] ) * binwidths[n]
             else:
-                row_flux = row_flux + ( df0.loc[i, f"{header_label}{channel_list[n]}"] ) * binwidths[n]
+                row_flux = row_flux + ( df0.loc[i, f"{header_label}{full_channel_list[n]}"] ) * binwidths[n]
             row_div = row_div + binwidths[n]
         merged_flux.append(float(row_flux / row_div))
 
@@ -251,9 +253,9 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
     #print(data_path)
     #print(os.listdir(data_path))
     #jax=input('Yes?')
-    if filename in os.listdir(data_path):
+    if False: #filename in os.listdir(data_path):
         # Jan: Potential issue with zeroes and nans both saved as zero.
-        sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True)
+        sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True, na_values='nan')
         return sc_df
 
 
@@ -268,18 +270,21 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
     spacecraft = [x.lower() for x in spacecraft]
 
     if 'psp' in spacecraft:
-        psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
+        pspdf, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
                                           startdate=dates[0], enddate=dates[1],
-                                          path=data_path+'psp/', resample='1min')
+                                          path=data_path+'psp/', resample=None) # can do resample='1min' but its not clean.
+        psp_df = pspdf.resample('1min').mean() # Results in the index of "2021-05-28 00:20:00" a clean minute.
+        psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['PSP']['channels']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
+            bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
         bin_width = []
-        for n in bin_list:
+        for n in range(bin_list[0], bin_list[1]+1):
             binstr = str(psp_meta['H_ENERGY_LABL'][n][0]).strip().split('-')
             #print('The bin string is now: ', binstr)
 
@@ -296,18 +301,19 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
             psp_df[f"{view}_F_{bin_label}"] = weighted_bin_merge(psp_df, 'psp', 'p', bin_list, f"{view}_H_Flux_", bin_width)
             psp_df[f"{view}_Func_{bin_label}"] = weighted_bin_merge(psp_df, 'psp', 'p', bin_list, f"{view}_H_Uncertainty_", bin_width)
 
-
         # Make omnidirectional
         psp_df1 = {'Time': psp_df.index}
         flux_arr, unc_arr = ([] for i in range(2))
         for tt in psp_df.index:
             flux_arr.append( np.nanmean([psp_df.loc[tt, f"A_F_{bin_label}"], psp_df.loc[tt, f"B_F_{bin_label}"]]) )
             unc_arr.append( np.nanmean([psp_df.loc[tt, f"A_Func_{bin_label}"], psp_df.loc[tt, f"B_Func_{bin_label}"]]) )
+        
         psp_df1["Flux"] = flux_arr
         psp_df1["Uncertainty"] = unc_arr
 
         psp_df2 = pd.DataFrame.from_dict(psp_df1)
         psp_df2.set_index('Time', inplace=True)
+
 
         # Resample
         psp = psp_df2.resample(resampling).mean()
@@ -320,19 +326,22 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
 
     if 'soho' in spacecraft:
-        soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
+        sohodf, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
                                        startdate=dates[0], enddate=dates[1],
-                                       path=data_path+'soho/', resample='1min',
+                                       path=data_path+'soho/', resample=None,
                                        pos_timestamp='start')
+        soho_df = sohodf.resample('1min').mean()
+        soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['SOHO']['channels']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
+            bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
         bin_width = []
-        for n in bin_list:
+        for n in range(bin_list[0], bin_list[1]+1):
             soho_meta = soho_meta['channels_dict_df_p']
             bin_start = soho_meta.loc[n, 'lower_E']
             bin_end = soho_meta.loc[n, 'upper_E']
@@ -343,6 +352,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # Calculate the uncertainty
         for n in bin_list: # data provided as intensities (PH) or counts/min (PHC)
             soho_df[f"Uncert_{n}"] = ( (soho_df[f"PH_{n}"]) / (np.sqrt(soho_df[f"PHC_{n}"])) ) * 1.1 # adding 10% uncertainty for systematic errors (according to RV)
+        # print(soho_df.loc[test_date, f"PH_{n}"])
+        # print(soho_df.loc[test_date, f"PHC_{n}"])
+        # print(soho_df.loc[test_date, f"Uncert_{n}"])
+        # jax = input("Hows the soho uncertainty calc?")
 
 
         # Merge the channels
@@ -353,30 +366,45 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         soho_df2 = pd.DataFrame.from_dict(soho_df1)
         soho_df2.set_index('Time', inplace=True)
 
+        # print(soho_df.loc[test_date, "PH_0"])
+        # print(bin_width)
+        # print(soho_df2.loc[test_date, "Flux"])
+        # jax = input("Hows the soho flux merge?")
+        # print(soho_df.loc[test_date, "Uncert_0"])
+        # print(soho_df2.loc[test_date, "Uncertainty"])
+        # jax = input("Hows the soho uncertainty merge?")
+
         # Resample
         soho = soho_df2.resample(resampling).mean()
         soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
+
+        # print(soho_df2.head())
+        # print(soho.head())
+        # jax=input("Hows the resample?")
 
         # Add to the collection
         sc_dict['SOHO'] = soho_sm
 
     if 'stereo-a' in spacecraft:
-        sta_df, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
+        stadf, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
                                        startdate=dates[0], enddate=dates[1],
-                                       path=data_path+'stereo/', resample='1min',
+                                       path=data_path+'stereo/', resample=None,
                                        pos_timestamp='start')
+        sta_df = stadf.resample('1min').mean()
+        sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['STEREO-A']['channels']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
+            bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
         bin_width = []
-        for n in bin_list:
+        for n in range(bin_list[0], bin_list[1]+1):
             sta_meta = sta_meta['channels_dict_df_p']
-            bin_start = soho_meta.loc[n, 'lower_E']
-            bin_end = soho_meta.loc[n, 'upper_E']
+            bin_start = sta_meta.loc[n, 'lower_E']
+            bin_end = sta_meta.loc[n, 'upper_E']
 
             bin_width.append(bin_end - bin_start)
 
@@ -389,9 +417,21 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         sta_df2 = pd.DataFrame.from_dict(sta_df1)
         sta_df2.set_index('Time', inplace=True)
 
+        # print(sta_df.loc[test_date, "Proton_Flux_0"])
+        # print(bin_width)
+        # print(sta_df2.loc[test_date, "Flux"])
+        # jax = input("Hows the sta flux merge?")
+        # print(sta_df.loc[test_date, "Proton_Sigma_0"])
+        # print(sta_df2.loc[test_date, "Uncertainty"])
+        # jax = input("Hows the sta uncertainty merge?")
+
         # Resample
         sta = sta_df2.resample(resampling).mean()
         sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
+
+        # print(sta_df2.head())
+        # print(sta.head())
+        # jax=input("Hows the resample?")
 
         # Add to the collection
         sc_dict['STEREO-A'] = sta_sm
@@ -404,15 +444,17 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
                                       pos_timestamp='start', path=data_path+'solo/')
 
         solo_df1 = solo_dfp.resample('1min').mean()
+        solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['Solar Orbiter']['channels']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
+            bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
         bin_width = []
-        for n in bin_list:
+        for n in range(bin_list[0], bin_list[1]+1):
             bin_width.append(solo_meta['H_Bins_Width'][n])
 
         # Merge the channels
@@ -423,9 +465,28 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         solo_df3 = pd.DataFrame.from_dict(solo_df2)
         solo_df3.set_index('Time', inplace=True)
 
+        # print('Check channel merge')
+        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_10')])
+        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_11')])
+        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_12')])
+        # print(bin_width)
+        # print(solo_df3.loc[test_date, 'Flux'])
+        # jax=input('How is solos channel merge?')
+
+        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_10')])
+        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_11')])
+        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_12')])
+        # print(bin_width)
+        # print(solo_df3.loc[test_date, 'Uncertainty'])
+        # jax=input('How is solos unc channel merge?')
+
         # Resample
         solo = solo_df3.resample(resampling).mean()
         solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
+
+        # print(solo_df3.head())
+        # print(solo.head())
+        # jax=input('How is the solo resample?')
 
         # Add to the collection
         sc_dict['Solar Orbiter'] = solo_sm
@@ -436,7 +497,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
 
     sc_df = pd.concat(sc_dict, axis=1, join='outer')
-    sc_df.to_csv(data_path + filename)
+    sc_df.to_csv(data_path + filename, na_rep='nan')
 
     return sc_df
 
@@ -455,7 +516,7 @@ def intercalibration_calculation(df, observer_metadict, data_path, dates):
             #jax=input('huh?')
             df[(obs, col)] *= factor
 
-    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv") # Save for sanity checks
+    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv", na_rep='nan') # Save for sanity checks
 
     return df
 
@@ -507,13 +568,13 @@ def radial_scaling_calculation(df0, data_path, scaling_values, dates):
                 unc_calculated = df_obs.loc[t, (obs,'Uncertainty')] * (df_obs.loc[t, (obs,'r_dist')] ** a)
     
                 ## Merge both results for the final scaled uncertainty
-                unc_final = np.sqrt((unc_calculated)**2 + (chosen_unc_limit)**2)
+                unc_final = np.sqrt(((unc_calculated)**2) + ((chosen_unc_limit)**2))
 
             df.loc[t, (obs, 'Flux')] = f_rscld
             df.loc[t, (obs, 'Uncertainty')] = unc_final
 
 
-    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv") # Save for sanity checks
+    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv", na_rep='nan') # Save for sanity checks
     return df
 
 ################################################
