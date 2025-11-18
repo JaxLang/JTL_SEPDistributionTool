@@ -50,7 +50,7 @@ SQR = r"$^2$"
 
 
 test_date = dt.datetime(2021,5,29,2,30)
-
+JAX_TESTERS = True
 
 
 ## Solar mach
@@ -238,6 +238,11 @@ def weighted_bin_merge(df0, spacecraft, species, channel_list, header_label, bin
 
     return merged_flux
 
+def rms_mean(x_arr):
+    """This function is used to 'resample' or average the uncertainty columns. Parts of this code were assisted by ChatGPT on 18Nov2025."""
+    return np.sqrt(np.sum(x_arr**2)) / len(x_arr)
+
+
 
 ################################################
 
@@ -253,7 +258,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
     #print(data_path)
     #print(os.listdir(data_path))
     #jax=input('Yes?')
-    if False: #filename in os.listdir(data_path):
+    if filename in os.listdir(data_path) and not JAX_TESTERS:
         # Jan: Potential issue with zeroes and nans both saved as zero.
         sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True, na_values='nan')
         return sc_df
@@ -270,11 +275,12 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
     spacecraft = [x.lower() for x in spacecraft]
 
     if 'psp' in spacecraft:
-        pspdf, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
+        psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
                                           startdate=dates[0], enddate=dates[1],
                                           path=data_path+'psp/', resample=None) # can do resample='1min' but its not clean.
-        psp_df = pspdf.resample('1min').mean() # Results in the index of "2021-05-28 00:20:00" a clean minute.
-        psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
+        if JAX_TESTERS:
+            psp_df = psp_df.resample('1min').mean() # Results in the index of "2021-05-28 00:20:00" a clean minute.
+            psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['PSP']['channels']
@@ -316,7 +322,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
 
         # Resample
-        psp = psp_df2.resample(resampling).mean()
+        psp = psp_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # psp = psp_df2.resample(resampling).mean()
         psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
         
 
@@ -326,12 +332,13 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
 
     if 'soho' in spacecraft:
-        sohodf, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
+        soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path+'soho/', resample=None,
                                        pos_timestamp='start')
-        soho_df = sohodf.resample('1min').mean()
-        soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
+        if JAX_TESTERS:
+            soho_df = soho_df.resample('1min').mean()
+            soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['SOHO']['channels']
@@ -375,7 +382,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax = input("Hows the soho uncertainty merge?")
 
         # Resample
-        soho = soho_df2.resample(resampling).mean()
+        soho = soho_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # soho = soho_df2.resample(resampling).mean()
         soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
 
         # print(soho_df2.head())
@@ -390,8 +397,9 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path+'stereo/', resample=None,
                                        pos_timestamp='start')
-        sta_df = stadf.resample('1min').mean()
-        sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
+        if JAX_TESTERS:
+            sta_df = stadf.resample('1min').mean()
+            sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['STEREO-A']['channels']
@@ -426,7 +434,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax = input("Hows the sta uncertainty merge?")
 
         # Resample
-        sta = sta_df2.resample(resampling).mean()
+        sta = sta_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # sta = sta_df2.resample(resampling).mean()
         sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
 
         # print(sta_df2.head())
@@ -481,7 +489,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax=input('How is solos unc channel merge?')
 
         # Resample
-        solo = solo_df3.resample(resampling).mean()
+        solo = solo_df3.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # solo = solo_df3.resample(resampling).mean()
         solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
 
         # print(solo_df3.head())
@@ -577,6 +585,54 @@ def radial_scaling_calculation(df0, data_path, scaling_values, dates):
     df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv", na_rep='nan') # Save for sanity checks
     return df
 
+
+
+
+
+################################################
+## Background Subtracting
+################################################
+def background_subtracting(df, data_path, background_window):
+    """Input: the full dataframe, the path for saving files, the background window.
+    Process: 1. Find the nanmean  and nanstd of the background window for both flux and unc.
+            2. Subtract the full column by the [avg - std] (this way there's less chance to get half the values as nan).
+                - The unc is calculated as: unc_adj = sqrt(unc**2 + [avg-std]**2)
+            3. Return the updated df."""
+    # Iterate through the big df
+    for obs, obs_df in df.groupby(level=0, axis=1): # Returns the observer and their specific df
+        #print(obs)
+        #print(obs_df.head())
+        # A list of just the values within the background window
+        bg_flux = obs_df[(obs,'Flux')][background_window[0]:background_window[1]]
+        bg_func = obs_df[(obs,'Uncertainty')][background_window[0]:background_window[1]]
+
+        # Find the nanmean and nanstd
+        f_bg_avg = float(np.nanmean(bg_flux))
+        u_bg_avg = rms_mean(bg_func) # Calculate the average background using root-mean-square function
+
+        #print('flux bg avg - std: ', f_bg_avg)
+        #print(bg_func)
+        #print('unc bg avg - std: ', u_bg_avg)
+        #jax=input('good?')
+
+        # Adjust the whole column
+        adj_flux = (obs_df.loc[:, (obs,'Flux')]) - f_bg_avg
+        adj_func = np.sqrt( ((obs_df.loc[:, (obs,'Uncertainty')])**2) + (u_bg_avg**2) )
+
+        # Replace any negative results with 'nan'
+        adj_flux = adj_flux.where(adj_flux>=0, np.nan) # new list = old list where the values are >=0, else make the value 'nan'
+        adj_func = adj_func.where(adj_func>=0, np.nan)
+
+        # Put the adjusted column in
+        df[(obs,'Flux')] = adj_flux
+        df[(obs,'Uncertainty')] = adj_func
+
+    df.to_csv(data_path+'backsubtest.csv', na_rep='nan')
+
+    return df
+
+
+
 ################################################
 ## Gaussian fitting
 ################################################
@@ -636,6 +692,8 @@ def plot_timeseries_result(df, data_path, dates, background_window=[]):
     if input('Save the file? ')=='y':
         label = input('Save file key word: ')
     plt.savefig(data_path+f'SEP_Intensities_{dates[0].strftime("%d%m%y")}_{label}.png')
-    plt.show()
+    #plt.show()
+
+    plt.clf()
     
         
