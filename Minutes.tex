@@ -6,6 +6,7 @@
 %\usepackage[osf]{libertine}
 \usepackage{amsthm}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{hyperref}
 
 
@@ -180,12 +181,143 @@
 
 %	\include{multiToC}
 
-    % \appendix
-    % \cleardoublepage\part{Appendix}
-    % \chapter{Appendix Chapter}
-    % \lipsum[1]
+    \appendix
+    \cleardoublepage\part{Appendix}
+    \chapter{Calculations for Each Step}
+
+    \section{Load the data}
+    \subsection{Parker Solar Probe}
+    Load using 
+    \begin{verbatim}
+    pspdf, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', 
+                                    startdate=dates[0], enddate=dates[1],
+                                    path=data_path+'psp/', resample=None)  
+    \end{verbatim} and the relevant columns are defined as \texttt{A\_H\_Flux\_n} and \texttt{B\_H\_Uncertainty\_n}. \\
+
+    The bin width is then calculated using the bin label from \texttt{psp\_meta} under the title of \texttt{H\_ENERGY\_LABL} (provided as \texttt{22.6 - 40.0 MeV} so it is split to just be the values).\\
+
+    Then we merge the channels using the weighted bin merge:
+    \begin{align}
+        f_{x-y} &= \frac{1}{\text{\# of channels}}\sum_{n=x}^{y} (f_n \cdot DE_n), \tag{Weighted bin merge} \label{eq:weightedbinmerge}
+    \end{align} where the channels run from $x$ to $y$ and $DE$ is the bin width found in the previous step. \\
+
+    Then we make it omni-directional using a simple nanmean function for both flux and uncertainty.\\
+
+    Lastly, it is resampled to 15 minutes using the pandas resample function and applying the standard \texttt{.mean()} function to every column except the uncertainty which uses a root mean square equation:
+    \begin{align}
+        <\sigma> &= \frac{1}{n} \sqrt{\sum_{j=1}^w \sigma_j^2}, \label{eqn:rms_mean} \tag{Root Mean Square}
+    \end{align} where $\sigma$ is the uncertainty.\\
+
+    In the end, it is concatenated with the solarmach loop dataframe.
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \subsection{SOHO}
+
+    Load using 
+    \begin{verbatim}
+    sohodf, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN',
+                                  startdate=dates[0], enddate=dates[1],
+                                  path=data_path+'soho/', resample=None,
+                                  pos_timestamp='start')  
+    \end{verbatim} and the relevant columns are defined as \texttt{PH\_n} and \texttt{PHC\_n}. \\
+
+    The bin width is then calculated using the bin label from \texttt{soho\_meta} under the title of \texttt{[channels\_dict\_df\_p]} then \texttt{lower\_E} or \texttt{upper\_E} (provided as the upper and lower limits of the bin).\\
+
+    From here, the uncertainty needs to be calculated using:
+    \begin{align}
+        \sigma_n &= \frac{f_n}{counts/s} \times 1.1, \label{eqn:sohouncertainty} \tag{SOHO Uncertainty}
+    \end{align} where 10\% is added for systematic errors.\\
+
+    Then we merge the channels using the weighted bin merge from above. \\
+
+    Then we don't need to make it omni-directional.\\
+
+    Lastly, it is resampled to 15 minutes using the same system as above.\\
+
+    In the end, it is concatenated with the solarmach loop dataframe.
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \subsection{Solar Orbiter}
+    Load using 
+    \begin{verbatim}
+    solo_dfp, solo_dfe, solo_meta = epd_load(sensor='het', level='l2',
+                                      startdate=dates[0], enddate=dates[1],
+                                      viewing='omni', autodownload=True,
+                                      pos_timestamp='start', path=data_path+'solo/')
+    \end{verbatim} and the relevant columns are defined as \texttt{[('H\_Flux','H\_Flux\_n')]} and \texttt{[('H\_Uncertainty','H\_Uncertainty\_n')]}. \\
+
+    The bin width is then calculated using the bin label from \texttt{solo\_meta} under the title of \texttt{H\_Bins\_Width}.\\
+
+    Then we merge the channels using the weighted bin merge from above. \\
+
+    Then we don't need to make it omni-directional.\\
+
+    Lastly, it is resampled to 15 minutes using the same system as above.\\
+
+    In the end, it is concatenated with the solarmach loop dataframe.
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \subsection{STEREO-A}
+    Load using 
+    \begin{verbatim}
+    stadf, sta_meta = stereo_load(instrument='HET', spacecraft='ahead',
+                                  startdate=dates[0], enddate=dates[1],
+                                  path=data_path+'stereo/', resample=None,
+                                  pos_timestamp='start')
+    \end{verbatim} and the relevant columns are defined as \texttt{Proton\_Flux\_n} and \texttt{Proton\_Sigma\_n}. \\
+
+    The bin width is then calculated using the bin label from \texttt{sta\_meta} under the title of \texttt{[channels\_dict\_df\_p]} then \texttt{lower\_E} or \texttt{upper\_E} (provided as the upper and lower limits of the bin).\\
+
+    Then we merge the channels using the weighted bin merge from above. \\
+
+    Then we don't need to make it omni-directional.\\
+
+    Lastly, it is resampled to 15 minutes using the same system as above.\\
+
+    In the end, it is concatenated with the solarmach loop dataframe.
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
     
-    % \section{A Section}
-    % \lipsum[1]
+    \section{Background Subtraction}
+    \begin{itemize}
+        \item The user provides a window of two datetime values in a list.\\
+        A figure is plotted to confirm the window with the user before continuing into the function.
+        \item Separate lists are made of just the flux (or uncertainty) values in the given window.
+        \item The background average is calculated from that (the flux is standard average, but the uncertainty uses \ref{eqn:rms_mean}).
+        \item The original column is then adjusted based on this value:\\
+        \begin{itemize}
+            \item $f = f_0 - f_{bg}$
+            \item $\sigma = \sqrt{\sigma_0^2 + \sigma_{bg}^2}$
+        \end{itemize}
+        \item Any negative values are replaced with NaNs.
+    \end{itemize}
+    
+    
+    
+
+    \section{Intercalibration}
+    Each spacecraft has its own IC factor and both the flux and uncertainty columns are simply multiplied by this factor.
+
+
+    \section{Radial Scaling}
+    Using the formula presented in FarwaEA2025 and the scaling values from LarioEA2006 for protons and from Rodriguez-GarciaEA2023 for ($\sim$100 keV) electrons. The formula we use is then:
+    \begin{align}
+        I_{(1~au)} &= I \cdot R^{a \pm b}, \label{eqn:radialscaling} \tag{Radial Scaling}
+    \end{align} where $a\pm b$ are the scaling factors.
+
+    For this tool which uses 11-16 MeV protons, we use the values from LarioEA2006 for 27-37 MeV protons $1.97 \pm 0.27$ (or we could use the 4-13 MeV proton results $2.14 \pm 0.26$ from Table 3).\\
+
+    The uncertainty is more complicated because we already have uncertainty values:
+    \begin{align}
+        \text{1. }& \; I_+ = I \cdot R^{a+b}; \implies \Delta I_+ = |I_{(1~au)} - I_+| \\
+        & \; I_- = I \cdot R^{a-b}; \implies \Delta I_- = |I_{(1~au)} - I_-| \\
+        & \; \hookrightarrow \; \Delta I_{max limit} = max(\Delta I_+, \; \Delta I_-) \\
+        \text{2. }& \; \sigma_{(1~au)} = \sigma \cdot R^a\\
+        \text{3. }& \; \therefore  \sigma_{final} = \sqrt{(\Delta I_{max limit})^2 + (\sigma_{(1~au)})^2}
+    \end{align}
+
+    This has to be computed for \textit{each} timestep.
+
+
+    \section{Gaussian Fitting}
+    
+    
 
 \end{document}
