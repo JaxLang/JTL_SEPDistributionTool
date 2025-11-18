@@ -5,6 +5,7 @@
 \usepackage[linedheaders,parts,pdfspacing, style=arsclassica]{classicthesis} % ,manychapters
 %\usepackage[osf]{libertine}
 \usepackage{amsthm}
+\usepackage{amsmath}
 \usepackage{hyperref}
 
 
@@ -125,10 +126,26 @@
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{November 18, 2025}
-    \textit{Attendees:} Jax T Lang. \\
+    \textit{Attendees:} Nina Dresing, Jan Gieseler, Rami Vainio, Jax T Lang. \\
 
     \begin{enumerate}
-        \item 
+        \item Resampling should be done using the following calculations for the intensity $I$ and uncertainty $\sigma$.
+        \begin{align}
+            <I> &= \tfrac{1}{n} \sum_{j=1}^w I_j \\
+            <\sigma> &= \tfrac{1}{n} \sqrt{\sum_{j=1}^w \sigma_j^2}
+        \end{align}
+        \item The order of operations should run as:
+        \begin{enumerate}
+            \item Load data (merge, omni, resample, etc)
+            \item Background subtract
+            \item Inter calibrate
+            \item Radial Scale
+        \end{enumerate}
+        \item Radial scaling calculation is fine (although it should be done with integrals etc, this version is more than sufficient).
+        \item Background Subtracting should only use the average of the background (not the avg - std deviation like I had it). The background also needs to be calculated like the equations given in the resampling point.
+        \item JTL aims to be done by Friday (21 November 2025) and thereafter just polishing and testing new events.
+        \item RV not joining for next meeting on 2 December 2025.
+        \item Meeting on 16 December 2025 merged with JTL's quarterly update with ND and RV.
     \end{enumerate}
 
 
