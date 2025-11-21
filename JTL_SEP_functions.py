@@ -50,7 +50,7 @@ SQR = r"$^2$"
 
 
 test_date = dt.datetime(2021,5,29,2,30)
-JAX_TESTERS = True
+JAX_TESTERS = False
 
 
 ## Solar mach
@@ -86,7 +86,7 @@ def solarmach_basic(startdate, data_path, coord_sys='Stonyhurst', source_locatio
 
     
 # 2. loop to get sc locations over time
-def solarmach_loop(observers, dates, data_path, source_loc=[None,None], coord_sys='Stonyhurst'):
+def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,None], coord_sys='Stonyhurst'):
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
@@ -246,7 +246,7 @@ def rms_mean(x_arr):
 
 ################################################
 
-def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration=True, radial_scaling=True, resampling='15min', reference_loc=[None,None]):
+def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resampling='15min', reference_loc=[None,None]):
     """Load the data, merge the bins, make omnidirectional, resample, intercalibrate, radial scale, and return one df:
         -index: times
         - header1: sc-ins
@@ -254,27 +254,25 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
 
     # Check if the file is already made and just load that one
     filename = f"SEP_intensities_{dates[0].strftime("%d%m%Y")}.csv"
-    #print(filename)
-    #print(data_path)
-    #print(os.listdir(data_path))
-    #jax=input('Yes?')
-    if filename in os.listdir(data_path) and not JAX_TESTERS:
+
+
+    if False: #filename in os.listdir(data_path) and not JAX_TESTERS:
         # Jan: Potential issue with zeroes and nans both saved as zero.
         sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True, na_values='nan')
         return sc_df
 
 
     # Download solarmach data for the same intervals
-    sm_df = solarmach_loop(spacecraft, dates, data_path, source_loc=reference_loc, coord_sys='Stonyhurst')
+    #sm_df = solarmach_loop(spacecraft, dates, data_path, source_loc=reference_loc, coord_sys='Stonyhurst')
     #print(sm_df)
     #jax=input('Continue?')
 
     
     # Download the data and load into a dictionary with the key as the spacecraft-instrument label
-    sc_dict = {}
-    spacecraft = [x.lower() for x in spacecraft]
+    #sc_dict = {}
+    spacecraft = spacecraft.lower()
 
-    if 'psp' in spacecraft:
+    if 'psp' == spacecraft:
         psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
                                           startdate=dates[0], enddate=dates[1],
                                           path=data_path+'psp/', resample=None) # can do resample='1min' but its not clean.
@@ -283,7 +281,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
             psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
-        bin_list = proton_channels['PSP']['channels']
+        bin_list = proton_channels['PSP']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
             bin_list.append(bin_list[0])
@@ -327,11 +325,12 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         
 
         # Add to the collection
-        sc_dict['PSP'] = psp_sm
+        #sc_dict['PSP'] = psp_sm
+        return psp_sm
 
 
 
-    if 'soho' in spacecraft:
+    if 'soho' == spacecraft:
         soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path+'soho/', resample=None,
@@ -341,7 +340,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
             soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
-        bin_list = proton_channels['SOHO']['channels']
+        bin_list = proton_channels['SOHO']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
             bin_list.append(bin_list[0])
@@ -390,9 +389,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax=input("Hows the resample?")
 
         # Add to the collection
-        sc_dict['SOHO'] = soho_sm
+        #sc_dict['SOHO'] = soho_sm
+        return soho_sm
 
-    if 'stereo-a' in spacecraft:
+    if 'stereo-a' == spacecraft:
         stadf, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path+'stereo/', resample=None,
@@ -400,9 +400,11 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         if JAX_TESTERS:
             sta_df = stadf.resample('1min').mean()
             sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
+        else:
+            sta_df = stadf
 
         # Find channels and bin widths
-        bin_list = proton_channels['STEREO-A']['channels']
+        bin_list = proton_channels['STEREO-A']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
             bin_list.append(bin_list[0])
@@ -442,20 +444,24 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax=input("Hows the resample?")
 
         # Add to the collection
-        sc_dict['STEREO-A'] = sta_sm
+        #sc_dict['STEREO-A'] = sta_sm
+        return sta_sm
 
 
-    if 'solar orbiter' in spacecraft:
+    if 'solar orbiter' == spacecraft:
         solo_dfp, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
                                       startdate=dates[0], enddate=dates[1],
                                       viewing='omni', autodownload=True,
                                       pos_timestamp='start', path=data_path+'solo/')
 
-        solo_df1 = solo_dfp.resample('1min').mean()
-        solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
+        if JAX_TESTERS:
+            solo_df1 = solo_dfp.resample('1min').mean()
+            solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
+        else:
+            solo_df1 = solo_dfp
 
         # Find channels and bin widths
-        bin_list = proton_channels['Solar Orbiter']['channels']
+        bin_list = proton_channels['Solar Orbiter']
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
             bin_list.append(bin_list[0])
@@ -497,92 +503,86 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, intercalibration
         # jax=input('How is the solo resample?')
 
         # Add to the collection
-        sc_dict['Solar Orbiter'] = solo_sm
+        #sc_dict['Solar Orbiter'] = solo_sm
+        return solo_sm
 
 
     # Merge all the relevant columns into one df
-    print(sc_dict)
+    #print(sc_dict)
 
 
-    sc_df = pd.concat(sc_dict, axis=1, join='outer')
-    sc_df.to_csv(data_path + filename, na_rep='nan')
+    #sc_df = pd.concat(sc_dict, axis=1, join='outer')
+    #sc_df.to_csv(data_path + filename, na_rep='nan')
 
-    return sc_df
+    #return sc_df
 
 
 ################################################
 ## Inter-calibration
 ################################################
-def intercalibration_calculation(df, observer_metadict, data_path, dates):
-    # Iterate through the observers (first header in df)
-    for obs, meta_data in observer_metadict.items():
-        factor = meta_data['intercalibration'] # extract the intercalibration factor
+def intercalibration_calculation(df, factor):
+    # Apply the scaling to the Flux and Uncertainty columns
+    for col in ['Flux','Uncertainty']: # Both are calculated the same
+        #print(df[(obs,col)])
+        #jax=input('huh?')
+        df[col] *= factor
 
-        # Apply the scaling to the Flux and Uncertainty columns
-        for col in ['Flux','Uncertainty']: # Both are calculated the same
-            #print(df[(obs,col)])
-            #jax=input('huh?')
-            df[(obs, col)] *= factor
-
-    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv", na_rep='nan') # Save for sanity checks
+    #df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_IC.csv", na_rep='nan') # Save for sanity checks
 
     return df
 
 ################################################
 ## Radial Scaling
 ################################################
-def radial_scaling_calculation(df0, data_path, scaling_values, dates):
-    df = df0.copy(deep=True) # so it doesnt mess with the OG df's
+def radial_scaling_calculation(df, scaling_values):
+    #df = df0.copy(deep=True) # so it doesnt mess with the OG df's
     
     a = scaling_values[0]
     b = scaling_values[1]
 
-    # Iterate through observers
-    for obs, df_obs in df.groupby(level=0, axis=1): # returning the observer and their specific df
-
-        for t in df_obs.index:
-            #print(df_obs.loc[t, (obs,'Flux')])
-            if pd.isna(df_obs.loc[t, (obs,'Flux')]) or pd.isna(df_obs.loc[t, (obs,'r_dist')])\
-            or (df_obs.loc[t, (obs,'Flux')]==0) or (df_obs.loc[t, (obs,'r_dist')]==0):
-                f_rscld = np.nan
-                unc_final = np.nan
+    for t in df.index:
+        #print(df.loc[t, 'Flux')])
+        if pd.isna(df.loc[t, 'Flux']) or pd.isna(df.loc[t, 'r_dist'])\
+            or (df.loc[t, 'Flux']==0) or (df.loc[t, 'r_dist']==0):
+            f_rscld = np.nan
+            unc_final = np.nan
             
+        else:
+            # Scale the flux
+            f_rscld = df.loc[t, 'Flux'] * (df.loc[t, 'r_dist'] ** a)
+
+            # Scale the uncertainty
+            ## Find the difference from the boundaries
+            unc_plus = df.loc[t, 'Flux'] * (df.loc[t, 'r_dist'] **(a+b))
+            unc_limit_plus = abs(f_rscld - unc_plus)
+            unc_minus = df.loc[t, 'Flux'] * (df.loc[t, 'r_dist'] **(a-b))
+            unc_limit_minus = abs(f_rscld - unc_minus)
+    
+            if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
+                chosen_unc_limit = unc_limit_plus
+            elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
+                chosen_unc_limit = unc_limit_minus
             else:
-                # Scale the flux
-                f_rscld = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] ** a)
-
-                # Scale the uncertainty
-                ## Find the difference from the boundaries
-                unc_plus = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] **(a+b))
-                unc_limit_plus = abs(f_rscld - unc_plus)
-                unc_minus = df_obs.loc[t, (obs,'Flux')] * (df_obs.loc[t, (obs,'r_dist')] **(a-b))
-                unc_limit_minus = abs(f_rscld - unc_minus)
+                print("There's a problem with the limits")
+                print("OG flux: ", df.loc[t, 'Flux'])
+                print("OG rad: ", df.loc[t, 'r_dist'])
+                print("Scaled Flux: ", f_rscld)
+                print("Unc plus: ", unc_limit_plus)
+                print("Unc minus: ", unc_limit_minus)
+                jax = input('Continue? ')
+                chosen_unc_limit = np.nan
     
-                if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
-                    chosen_unc_limit = unc_limit_plus
-                elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
-                    chosen_unc_limit = unc_limit_minus
-                else:
-                    print("There's a problem with the limits")
-                    print("OG flux: ", df_obs.loc[t, (obs,'Flux')])
-                    print("OG rad: ", df_obs.loc[t, (obs,'r_dist')])
-                    print("Scaled Flux: ", f_rscld)
-                    print("Unc plus: ", unc_limit_plus)
-                    print("Unc minus: ", unc_limit_minus)
-                    jax = input('Continue? ')
-                    chosen_unc_limit = np.nan
+            ## Find the calculated scaled uncertainty
+            unc_calculated = df.loc[t, 'Uncertainty'] * (df.loc[t, 'r_dist'] ** a)
     
-                ## Find the calculated scaled uncertainty
-                unc_calculated = df_obs.loc[t, (obs,'Uncertainty')] * (df_obs.loc[t, (obs,'r_dist')] ** a)
-    
-                ## Merge both results for the final scaled uncertainty
-                unc_final = np.sqrt(((unc_calculated)**2) + ((chosen_unc_limit)**2))
+            ## Merge both results for the final scaled uncertainty
+            unc_final = np.sqrt(((unc_calculated)**2) + ((chosen_unc_limit)**2))
 
-            df.loc[t, (obs, 'Flux')] = f_rscld
-            df.loc[t, (obs, 'Uncertainty')] = unc_final
+        df.loc[t, 'Flux'] = f_rscld
+        df.loc[t, 'Uncertainty'] = unc_final
 
 
-    df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv", na_rep='nan') # Save for sanity checks
+    #df.to_csv(f"{data_path}SEP_intensities_{dates[0].strftime("%d%m%Y")}_RS.csv", na_rep='nan') # Save for sanity checks
     return df
 
 
@@ -593,41 +593,38 @@ def radial_scaling_calculation(df0, data_path, scaling_values, dates):
 ## Background Subtracting
 ################################################
 def background_subtracting(df, data_path, background_window):
-    """Input: the full dataframe, the path for saving files, the background window.
+    """Input: the sc dataframe, the path for saving files, the background window.
     Process: 1. Find the nanmean  and nanstd of the background window for both flux and unc.
             2. Subtract the full column by the [avg - std] (this way there's less chance to get half the values as nan).
                 - The unc is calculated as: unc_adj = sqrt(unc**2 + [avg-std]**2)
             3. Return the updated df."""
-    # Iterate through the big df
-    for obs, obs_df in df.groupby(level=0, axis=1): # Returns the observer and their specific df
-        #print(obs)
-        #print(obs_df.head())
-        # A list of just the values within the background window
-        bg_flux = obs_df[(obs,'Flux')][background_window[0]:background_window[1]]
-        bg_func = obs_df[(obs,'Uncertainty')][background_window[0]:background_window[1]]
 
-        # Find the nanmean and nanstd
-        f_bg_avg = float(np.nanmean(bg_flux))
-        u_bg_avg = rms_mean(bg_func) # Calculate the average background using root-mean-square function
+    # A list of just the values within the background window
+    bg_flux = df['Flux'][background_window[0]:background_window[1]]
+    bg_func = df['Uncertainty'][background_window[0]:background_window[1]]
 
-        #print('flux bg avg - std: ', f_bg_avg)
-        #print(bg_func)
-        #print('unc bg avg - std: ', u_bg_avg)
-        #jax=input('good?')
+    # Find the nanmean and nanstd
+    f_bg_avg = float(np.nanmean(bg_flux))
+    u_bg_avg = rms_mean(bg_func) # Calculate the average background using root-mean-square function
 
-        # Adjust the whole column
-        adj_flux = (obs_df.loc[:, (obs,'Flux')]) - f_bg_avg
-        adj_func = np.sqrt( ((obs_df.loc[:, (obs,'Uncertainty')])**2) + (u_bg_avg**2) )
+    #print('flux bg avg - std: ', f_bg_avg)
+    #print(bg_func)
+    #print('unc bg avg - std: ', u_bg_avg)
+    #jax=input('good?')
 
-        # Replace any negative results with 'nan'
-        adj_flux = adj_flux.where(adj_flux>=0, np.nan) # new list = old list where the values are >=0, else make the value 'nan'
-        adj_func = adj_func.where(adj_func>=0, np.nan)
+    # Adjust the whole column
+    adj_flux = (df.loc[:, 'Flux']) - f_bg_avg
+    adj_func = np.sqrt( ((df.loc[:, 'Uncertainty'])**2) + (u_bg_avg**2) )
 
-        # Put the adjusted column in
-        df[(obs,'Flux')] = adj_flux
-        df[(obs,'Uncertainty')] = adj_func
+    # Replace any negative results with 'nan'
+    adj_flux = adj_flux.where(adj_flux>=0, np.nan) # new list = old list where the values are >=0, else make the value 'nan'
+    adj_func = adj_func.where(adj_func>=0, np.nan)
 
-    df.to_csv(data_path+'backsubtest.csv', na_rep='nan')
+    # Put the adjusted column in
+    df['Flux'] = adj_flux
+    df['Uncertainty'] = adj_func
+
+    #df.to_csv(data_path+'backsubtest.csv', na_rep='nan')
 
     return df
 
@@ -643,17 +640,16 @@ def background_subtracting(df, data_path, background_window):
 ## Plotters
 ################################################
 
-def plot_timeseries_result(df, data_path, dates, background_window=[]):
+def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     # Determine how many subplots are needed
-    obs = set([col[0] for col in df.columns if len(col)==2])
-    obs = list(obs)
+    obs = list(sc_dict.keys())
     print(obs)
 
     fig, ax = plt.subplots(len(obs), 1, figsize=[5, len(obs)+2.5], dpi=300, sharex=True)
     fig.subplots_adjust(hspace=0.02)
 
     # Title
-    ax[0].set_title(dates[0].strftime("%H:%M - %d %b, %Y"), pad=9, loc='left')
+    ax[0].set_title(date.strftime("%H:%M - %d %b, %Y"), pad=9, loc='left')
     fig.supylabel('Intensity')
 
     for n in range(len(obs)):
@@ -661,7 +657,7 @@ def plot_timeseries_result(df, data_path, dates, background_window=[]):
         mrkr = mrkr_settings[sc]
 
         # Show the event start time
-        ax[n].axvline(x=dates[0], color='k', linestyle='dashed', linewidth=0.5)
+        ax[n].axvline(x=date, color='k', linestyle='dashed', linewidth=0.5)
 
         # Show the background window
         if len(background_window) > 1:
@@ -672,17 +668,18 @@ def plot_timeseries_result(df, data_path, dates, background_window=[]):
             ax[0].add_artist(box_obj)
 
         # Plot the data
-        ax[n].semilogy(df[(sc, 'Flux')], color=mrkr['color'], label=mrkr['label'], linestyle='solid')
-        ax[n].fill_between(x = df.index,
-                           y1= df[(sc, 'Flux')] - df[(sc, 'Uncertainty')],
-                           y2= df[(sc, 'Flux')] + df[(sc, 'Uncertainty')],
+        ax[n].semilogy(sc_dict[sc]['Flux'], color=mrkr['color'], label=mrkr['label'], linestyle='solid')
+        ax[n].fill_between(x = sc_dict[sc].index,
+                           y1= sc_dict[sc]['Flux'] - sc_dict[sc]['Uncertainty'],
+                           y2= sc_dict[sc]['Flux'] + sc_dict[sc]['Uncertainty'],
                            alpha=0.3, color=mrkr['color'])
         ax[n].legend(loc='upper right', alignment='left')
         ax[n].yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=3))
         ax[n].minorticks_on()
+        ax[n].set_ylim(1e-5,5e0)
 
-    xmin = dates[0] - dt.timedelta(hours=5)
-    xmax = dates[0] + dt.timedelta(hours=22)
+    xmin = date - dt.timedelta(hours=5)
+    xmax = date + dt.timedelta(hours=22)
     ax[0].set_xlim([xmin,xmax])
     locator = mpl.dates.AutoDateLocator(minticks=3, maxticks=6)
     ax[n-1].xaxis.set(major_locator=locator, )
@@ -690,10 +687,10 @@ def plot_timeseries_result(df, data_path, dates, background_window=[]):
 
     label=''
     if input('Save the file? ')=='y':
-        label = input('Save file key word: ')
-    plt.savefig(data_path+f'SEP_Intensities_{dates[0].strftime("%d%m%y")}_{label}.png')
-    #plt.show()
+        label = '_' + input('Save file key word: ')
+        plt.savefig(data_path+f'SEP_Intensities_{date.strftime("%d%m%y")}{label}.png')
+    plt.show()
 
-    plt.clf()
+    #plt.clf()
     
         
