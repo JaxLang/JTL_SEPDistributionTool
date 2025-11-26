@@ -10,7 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import AnchoredText
 
-from sunpy.time import parse_time
+#from sunpy.time import parse_time
 import astropy.constants as aconst
 import astropy.units as u
 
@@ -21,14 +21,15 @@ from solo_epd_loader import epd_load
 
 from solarmach import SolarMACH
 
-mrkr_settings = {'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
-                 'SOHO': {'marker': 'o', 'color': 'darkgreen', 'label': 'SOHO-ERNE/HED'},
-                 'STEREO-A': {'marker': '^', 'color': 'red', 'label': 'STEREO-A/HET'},
-                 'PSP':  {'marker': 'p', 'color': 'purple', 'label': 'Parker Solar Probe/HET'},
-                 #'Wind': {'marker': '*', 'color': 'slategray', 'label': 'Wind'},
-                 #'STEREO-B': {'marker': 'v', 'color': 'blue', 'label': 'STEREO-B'},
-                 #'BepiColombo': {'marker': 'd', 'color': 'orange', 'label': 'BepiColombo'}
-                }
+marker_settings = {
+    'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
+    'SOHO': {'marker': 'o', 'color': 'darkgreen', 'label': 'SOHO-ERNE/HED'},
+    'STEREO-A': {'marker': '^', 'color': 'red', 'label': 'STEREO-A/HET'},
+    'PSP':  {'marker': 'p', 'color': 'purple', 'label': 'Parker Solar Probe/HET'},
+    'Wind': {'marker': '*', 'color': 'slategray', 'label': 'Wind'},
+    'STEREO-B': {'marker': 'v', 'color': 'blue', 'label': 'STEREO-B'},
+    'BepiColombo': {'marker': 'd', 'color': 'orange', 'label': 'BepiColombo'}
+    }
 
 
 plt.style.use('seaborn-v0_8-paper')
@@ -53,40 +54,136 @@ test_date = dt.datetime(2021,5,29,2,30)
 JAX_TESTERS = False
 
 
+################################################
+## Event Class
+################################################
+class SEPEvent:
+    def __init__(self, spacecraft, channels, dates, resampling, data_path, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
+        """spacecraft: list of spacecraft names (i.e. ['SOHO', 'Solar Orbiter'])
+        proton channels: dict of the channels [start, end] to be used
+        dates: [start, end] dates (flare start time in the 'start')
+        resampling: the interval to resample the data to
+        data_path: where the data is saved to
+        intercalibration: dict of ic values ('None' if user doesnt want to ic)
+        radial_scaling: list of radial scaling values (a +- b) (see Farwa+2025 for more details)
+        coord_sys: (default: Stonyhurst) either stonyhurst or carrington for plotting and calculations.
+        flare_loc: for adding a reference to plots
+        """
+        self.start = dates[0]
+        self.end = dates[1]
+        self.channels = channels
+        self.resampling = resampling
+        self.path = data_path
+        if 'coord_sys' in kwargs.keys():
+            coord_sys = kwargs['coord_sys']
+            if coord_sys.lower().startswith('car'):
+                coord_sys = 'Carrington'
+            elif coord_sys.lower().startswith('sto') or coord_sys.lower() == 'earth':
+                coord_sys = 'Stonyhurst'
+        else:
+            coord_sys = 'Stonyhurst'
+        self.coord_sys = coord_sys
+
+        if 'flare_loc' in kwargs.keys():
+            self.flare_loc = kwargs['flare_loc']
+        else:
+            self.flare_loc = [np.nan, np.nan]
+
+        # List and load the data
+        self.spacecraft_list = spacecraft
+
+        ## Solarmach data
+        self.sm_data = {}
+        self._load_solarmach_loop()
+
+        ## Observer data
+        self.sc_data = {}
+        self._load_spacecraft_data()
+
+
+    def _load_solarmach_loop(self):
+        """Download the solarmach data for the time period."""
+        try:
+            self.sm_data = solarmach_loop(self.spacecraft_list, [self.start, self.end],
+                                              self.path, self.resampling, self.flare_loc)
+        except Exception as e:
+            print(f"Warning: Could not load solarmach data: {e}")
+
+    def _load_spacecraft_data(self):
+        """Download the data for each sc"""
+        for sc in self.spacecraft_list:
+            try:
+                self.sc_data[sc] = load_sc_data(sc, self.sm_data, self.channels,
+                                                [self.start, self.end],
+                                                self.path, self.resampling)
+            except Exception as e:
+                print(f"Warning: Could not load data for {sc}: {e}")
+
+    def get_sc_df(self, sc_name):
+        """Return the df to the user"""
+        return self.sc_data.get(sc_name)
+
+    def background_subtract(self, background_window):
+        """Given a window by the user, the function calculates the average, reduces the
+        intensity by this average, and results in a background reduced dataset."""
+        for sc in self.spacecraft_list:
+            try:
+                self.sc_data[sc] = background_subtracting(self.sc_data.get(sc), self.path, background_window)
+            except Exception as e:
+                print(f"Warning: Could not background subtract for {sc}: {e}")
+
+    def intercalibrate(self, intercalibration_values):
+        """Adjusts the data based on the given intercalibration values."""
+        for sc in self.spacecraft_list:
+            try:
+                self.sc_data[sc] = intercalibration_calculation(self.sc_data.get(sc), intercalibration_values[sc])
+            except Exception as e:
+                print(f"Warning: Could not intercalibrate for {sc}: {e}")
+
+    def radial_scale(self, radial_scaling_factors):
+        """Scales the data using the functions presented in FarwaEA2025."""
+        for sc in self.spacecraft_list:
+            try:
+                self.sc_data[sc] = radial_scaling_calculation(self.sc_data.get(sc), radial_scaling_factors)
+            except Exception as e:
+                print(f"Warning: Could not radial scale for {sc}: {e}")
+
+    def plot_update(self, **kwargs):
+        """Plots the time series for each given observer."""
+        bg_zone = []
+        if 'background_window' in kwargs:
+            bg_zone = kwargs['background_window']
+        try:
+            plot_timeseries_result(self.sc_data, self.path, self.start, bg_zone)
+        except Exception as e:
+            print(f"Warning: Could not plot figure: {e}")
+
+    def calc_Gaussian_fit(self):
+        """Calculates the Gaussian fits at each time interval."""
+        try:
+            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.path)
+        except Exception as e:
+            print(f"Warning: Could not calculate Gaussian fit: {e}")
+
+    def plot_gauss_results(self):
+        try:
+            if np.isnan(self.flare_loc[0]):
+                plot_gauss_fits(self.sc_data, self.path, self.start)
+            else:
+                plot_gauss_fits(self.sc_data, self.path, self.start, flare_loc=self.flare_loc)
+        except Exception as e:
+            print(f"Warning: Could not plot figure: {e}")
+
+
+
+
+
+
+
 ## Solar mach
-# 1. initial plot to determine if event is good
-def solarmach_basic(startdate, data_path, coord_sys='Stonyhurst', source_location=None):
-    filename = f'SolarMACH_{startdate.strftime("%d%m%Y_%H:%M")}'
-    print(filename)
-    print(os.listdir(data_path))
-    if filename+'.csv' in os.listdir(data_path):
-        print('WIN')
-        smtable = pd.read_csv(data_path+filename+'.csv', index_col='Spacecraft/Body', na_values='nan')
-        return smtable
-        
-    datetime_parse = parse_time(startdate)
-
-    observers = ['Earth', 'PSP', 'Solar Orbiter', 'STEREO-A', 'BepiColombo']
-
-    sm1 = SolarMACH(datetime_parse, observers, vsw_list=[], 
-                    reference_long=source_location[0],  reference_lat=source_location[1], 
-                    coord_sys='Stonyhurst')
-
-    sm1_tab = sm1.coord_table.copy()
-    sm1_tab.index = sm1_tab['Spacecraft/Body']
-    sm1_tab.to_csv(f'{data_path+filename}.csv')
-
-    # Show the polar plot
-    sm1.plot(plot_spirals=True, plot_sun_body_line=True, reference_vsw=400,
-             transparent=False, numbered_markers=False, long_offset=270, 
-             return_plot_object=False, 
-             outfile=f'{data_path+filename}.png')
-
-    return sm1
-
-    
-# 2. loop to get sc locations over time
 def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,None], coord_sys='Stonyhurst'):
+    """Downloads the fleet location data between the given dates with the
+        given 'resampling' interval."""
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
@@ -95,14 +192,14 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
 
     # Set up the time list to iterate through
     starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour-5, 0) #Gathering enough background too
-    date_list = pd.date_range(starting_time, dates[1], freq='15min')
+    date_list = pd.date_range(starting_time, dates[1], freq=resampling)
 
     sm_df = {}
     for t in date_list:
-        sm10 = SolarMACH(t, observers, vsw_list=[], 
-                         reference_long=source_loc[0], 
-                         reference_lat=source_loc[1], 
-                         coord_sys='Stonyhurst')
+        sm10 = SolarMACH(t, observers, vsw_list=[],
+                         reference_long=source_loc[0],
+                         reference_lat=source_loc[1],
+                         coord_sys=coord_sys)
         sm_df[t] = sm10.coord_table
 
     # Create a new dict with each spacecraft df saved separately
@@ -121,7 +218,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
 
             foot_calc = move_along_parker_spiral(
                 r_dist=tmp_df['Heliocentric distance (AU)'][obs], 
-                loc=[float(tmp_df['Stonyhurst longitude (°)'][obs]), 
+                loc=[float(tmp_df['Stonyhurst longitude (°)'][obs]), # JAX: what if carrington?
                           float(tmp_df['Stonyhurst latitude (°)'][obs])],
                 vsw=tmp_df['Vsw'][obs], towards=True, err_calc=True)
 
@@ -152,7 +249,10 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
     return df2
     
 def move_along_parker_spiral(r_dist, loc, vsw, towards, err_calc):
-    #radial distance, location  [WE, NS],  measured Vsw, towards the Sun (True) or away (False), err_calc = True/False
+    """ Reads in the radial distance, location  [WE, NS],  measured Vsw,
+        'towards' the Sun (True) or away (False), err_calc = True/False.
+        Returns the longitude position at the requested radial distance."""
+
     sun_radius = aconst.R_sun.to(u.AU).value
     if loc[0] < 0:
         loc[0] = loc[0] + 360
@@ -246,8 +346,8 @@ def rms_mean(x_arr):
 
 ################################################
 
-def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resampling='15min', reference_loc=[None,None]):
-    """Load the data, merge the bins, make omnidirectional, resample, intercalibrate, radial scale, and return one df:
+def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resampling='15min'):
+    """Load the data, merge the bins, make omnidirectional, resample, and return one df:
         -index: times
         - header1: sc-ins
         - [Flux, Uncertainty, Radial Distance, Longitude]"""
@@ -255,17 +355,6 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
     # Check if the file is already made and just load that one
     filename = f"SEP_intensities_{dates[0].strftime("%d%m%Y")}.csv"
 
-
-    if False: #filename in os.listdir(data_path) and not JAX_TESTERS:
-        # Jan: Potential issue with zeroes and nans both saved as zero.
-        sc_df = pd.read_csv(data_path+filename, header=[0,1], index_col=0, parse_dates=True, na_values='nan')
-        return sc_df
-
-
-    # Download solarmach data for the same intervals
-    #sm_df = solarmach_loop(spacecraft, dates, data_path, source_loc=reference_loc, coord_sys='Stonyhurst')
-    #print(sm_df)
-    #jax=input('Continue?')
 
     
     # Download the data and load into a dictionary with the key as the spacecraft-instrument label
@@ -521,7 +610,7 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
 ## Inter-calibration
 ################################################
 def intercalibration_calculation(df, factor):
-    # Apply the scaling to the Flux and Uncertainty columns
+    """Apply the scaling to the Flux and Uncertainty columns"""
     for col in ['Flux','Uncertainty']: # Both are calculated the same
         #print(df[(obs,col)])
         #jax=input('huh?')
@@ -535,6 +624,8 @@ def intercalibration_calculation(df, factor):
 ## Radial Scaling
 ################################################
 def radial_scaling_calculation(df, scaling_values):
+    """Scales the data based on its radial distance according to:
+        I_new = I * R ^(a +- b)."""
     #df = df0.copy(deep=True) # so it doesnt mess with the OG df's
     
     a = scaling_values[0]
@@ -633,6 +724,147 @@ def background_subtracting(df, data_path, background_window):
 ################################################
 ## Gaussian fitting
 ################################################
+def gauss_function(x, A, x0, sigma):
+    """Function to calculate the Gaussian curve for scipy's methods."""
+    return A * np.exp( -((x-x0)**2) / (2 * sigma**2) )
+
+def log_gauss_function(x, logA, x0, sigma):
+    """Formula to calculate the Gaussian curve to data that has been log-scaled."""
+    return logA - ( (x - x0)**2 ) / ( 2 * np.log(10) * sigma**2 )
+
+
+def log_gauss_function_beta(beta_params, x):
+    """The same as log_gauss_function but 'curve_fit' and 'odr' require a different
+    ordering of the parameters."""
+    a, x0, sigma = beta_params
+    result = log_gauss_function(x, a, x0, sigma)
+    return result
+
+def odr_gauss_fit(dict_1timestep, prev_results):
+    """A more reliable and complex fitting function that requires the
+    initial parameters to be within reason, so it calls the basic fitting function.
+    Input: one timesteps worth of values, and the results of the previous timesteps fit."""
+
+    df = pd.DataFrame(dict_1timestep)
+
+    # Remove zero and nan values
+    for i, row in df.iterrows():
+        if (row['y'] == 0.0) or (np.isnan(row['y'])):
+            df.drop([i], inplace=True) # Drops the whole row
+
+    # Must have at least 3 data points to calculate
+    if len(df['y']) < 3:
+        return {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
+
+    # Check for previous timestep results (if none then calculate)
+    if np.isnan(prev_results['A']): # Nothing stored
+        try:
+            popt, pcov = curve_fit(log_gauss_function, df['x'], df['y'],
+                                  p0=[max(df['y']), df['x'][ df['y'].idxmax() ], 20]) # max amplitude, position of the max amplitude, width
+            prev_results = {'A': float(popt[0]), 'X0': float(popt[1]), 'sigma': float(popt[2])}
+        except:
+            print("No updated Gaussian parameters were found")
+            prev_results = {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
+
+    # Set up the ODR functions
+    odr_model = odr.Model(log_gauss_function_beta)
+    if np.isnan(df['yerr']).any(): # If there are any nan's then it won't calculate properly
+        odr_data = odr.RealData(x=df['x'], y=df['y'], sx=df['xerr'])
+    else:
+        odr_data = odr.RealData(x=df['x'], y=df['y'], sx=df['xerr'], sy=df['yerr'])
+
+    odr_setup = odr.ODR(odr_data, odr_model, beta0=[prev_results['A'], prev_results['X0'], prev_results['sigma']])
+    out = odr_setup.run()
+
+    # Confirm that ODR found a fitted curve
+    stopreason = []
+    for reasons in out.stopreason:
+        if 'convergence' in reasons:
+            stopreason.append('pass')
+        else:
+            stopreason.append('fail')
+
+    if 'pass' not in stopreason:
+        return {'A': np.nan, 'X0': np.nan, 'sigma': np.nan,
+                'A err': np.nan, 'X0 err': np.nan, 'sigma err': np.nan, 'res':np.nan}
+
+    return {'A': float(out.beta[0]), 'X0': float(out.beta[1]), 'sigma': float(out.beta[2]),
+            'A err': float(out.sd_beta[0]), 'X0 err': float(out.sd_beta[1]), 'sigma err': float(out.sd_beta[2]),
+            'res': float(out.res_var)}
+
+def fit_gauss_curves_to_data(sc_dict, data_path):
+    """Read in the full df, calculate the curve at each timestep, save the results to new columns."""
+    # Create a folder to save the gaussian timestep figures in
+    try:
+        os.makedirs(data_path+'Gauss_fits/')
+    except FileExistsError:
+        pass
+
+    a_arr, a_errarr, x0_arr, x0_errarr, sigma_arr, sigma_errarr, res_arr, time_arr, sc_arr = ([] for i in range(9))
+
+    # Set up a dict for the previous Gaussian results to be stored and compared.
+    prev_gauss = {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
+
+    obs = list(sc_dict.keys())
+
+    for i in sc_dict[obs[0]].index: # iterate through each timestep
+        if i.day != 29:  # JAX: REMOVE AFTER TESTING
+            continue
+        x, xerr, y, yerr, sc_arr = ([] for i in range(5))
+        print(i)
+
+        for sc, df in sc_dict.items():
+            sc_arr.append(sc)
+            y.append(float(np.log10(df.loc[i, 'Flux'])))
+            yerr.append(float(np.log10(df.loc[i, 'Uncertainty'])))
+            x.append(float(df.loc[i, 'foot_long']))
+            xerr.append(float(df.loc[i, 'foot_long_error']))
+
+        # Calculate the fit now
+        print(x)
+        print(y)
+        timestep_dict = {'x':x, 'y':y, 'sc':sc_arr, 'xerr':xerr, 'yerr':yerr}
+        #gauss_results = basic_gauss_fit(timestep_dict)
+        gauss_results = odr_gauss_fit(timestep_dict, prev_gauss)
+        print(gauss_results)
+        a_arr.append( gauss_results['A'] )
+        x0_arr.append( gauss_results['X0'] )
+        sigma_arr.append( gauss_results['sigma'] )
+        time_arr.append(i)
+        #jax=input()
+        if 'A err' in gauss_results.keys():
+            a_errarr.append(gauss_results['A err'])
+            x0_errarr.append(gauss_results['X0 err'])
+            sigma_errarr.append(gauss_results['sigma err'])
+            res_arr.append(gauss_results['res'])
+        else:
+            a_errarr.append(np.nan)
+            x0_errarr.append(np.nan)
+            sigma_errarr.append(np.nan)
+            res_arr.append(np.nan)
+
+        # Plot the fit for this timestep
+        if not np.isnan(x).any() and not np.isnan(gauss_results['X0']):
+            plot_curve_and_timeseries(gauss_results, timestep_dict, sc_dict, data_path+'Gauss_fits/', i)
+
+        prev_gauss = gauss_results
+
+    # Build the results df
+    fits_dict = {'Time': time_arr}
+    fits_dict['A'] = a_arr
+    fits_dict['X0'] = x0_arr
+    fits_dict['sigma'] = sigma_arr
+    fits_dict['A err'] = a_errarr
+    fits_dict['X0 err'] = x0_errarr
+    fits_dict['sigma err'] = sigma_errarr
+    fits_dict['res'] = res_arr
+
+    fits_df = pd.DataFrame(fits_dict)
+    fits_df.set_index('Time', inplace=True)
+
+    fits_df.to_csv(data_path+'Gaussian_fit_results.csv')
+
+    return fits_df
 
 
 
@@ -641,6 +873,7 @@ def background_subtracting(df, data_path, background_window):
 ################################################
 
 def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
+    """Plots the time series for each observer."""
     # Determine how many subplots are needed
     obs = list(sc_dict.keys())
     print(obs)
@@ -652,9 +885,9 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     ax[0].set_title(date.strftime("%H:%M - %d %b, %Y"), pad=9, loc='left')
     fig.supylabel('Intensity')
 
-    for n in range(len(obs)):
-        sc = obs[n]
-        mrkr = mrkr_settings[sc]
+    for n, sc in enumerate(obs):
+        #sc = obs[n]
+        mrkr = marker_settings[sc]
 
         # Show the event start time
         ax[n].axvline(x=date, color='k', linestyle='dashed', linewidth=0.5)
@@ -663,12 +896,14 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
         if len(background_window) > 1:
             ax[n].axvspan(background_window[0], background_window[1], alpha=0.2, color='grey')
             bg_txt = f'Background window:\n{background_window[0].strftime("%H:%M")} - {background_window[0].strftime("%H:%M %d %b, %Y")}'
-            box_obj = AnchoredText(bg_txt, frameon=True, loc='lower right', pad=0.5, prop={'size':7})
+            box_obj = AnchoredText(bg_txt, frameon=True, loc='lower right',
+                                   pad=0.5, prop={'size':7})
             plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
             ax[0].add_artist(box_obj)
 
         # Plot the data
-        ax[n].semilogy(sc_dict[sc]['Flux'], color=mrkr['color'], label=mrkr['label'], linestyle='solid')
+        ax[n].semilogy(sc_dict[sc]['Flux'], color=mrkr['color'],
+                       label=mrkr['label'], linestyle='solid')
         ax[n].fill_between(x = sc_dict[sc].index,
                            y1= sc_dict[sc]['Flux'] - sc_dict[sc]['Uncertainty'],
                            y2= sc_dict[sc]['Flux'] + sc_dict[sc]['Uncertainty'],
@@ -692,5 +927,164 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     plt.show()
 
     #plt.clf()
-    
-        
+
+
+def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep):
+    """Plotting two subplots, left the fitted gaussian curve, right the time series."""
+
+
+    ymin_val = 1e5
+    ymax_val = 1e-5
+    xmin_val = 0
+    xmax_val = 0
+    for sc in ['SOHO','PSP','STEREO-A','Solar Orbiter']:
+        ymintmp = np.nanmin(full_df[sc]['Flux'])
+        ymaxtmp = np.nanmax(full_df[sc]['Flux'])
+        ymin_val = min(ymin_val, ymintmp)
+        ymax_val = max(ymax_val, ymaxtmp)
+
+        xmintmp = np.nanmin(full_df[sc]['foot_long'])
+        xmaxtmp = np.nanmax(full_df[sc]['foot_long'])
+        xmin_val = min(xmin_val, xmintmp)
+        xmax_val = max(xmax_val, xmaxtmp)
+
+    fig = plt.figure(figsize=[10,3], dpi=300)
+    plt.axis('off')
+
+    grid = plt.GridSpec(nrows=1, ncols=3, wspace=0.03)
+
+    gauss_ax = fig.add_subplot(grid[0,0])
+    tseries_ax = fig.add_subplot(grid[0,1:], sharey=gauss_ax)
+
+    gauss_ax.set_ylabel('Intensity')
+    gauss_ax.set_xlabel('Footprint Longitude')
+
+    # Add a text box with the energy and species
+    box_obj = AnchoredText('14 MeV Protons\n'+timestep.strftime("%H:%M %d %b %Y"),
+                           frameon=True, loc='lower right', pad=0.5, prop={'size':9})
+    plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
+    tseries_ax.add_artist(box_obj)
+
+    # Add a vertical line in the time series to see where the timestamp is
+    tseries_ax.axvline(x=timestep, color='k', linewidth=1.2, alpha=0.8)
+
+    # Calculate and plot the curve
+    x_curve = np.linspace(-360,360,200)
+    y_curve = 10 ** log_gauss_function(x_curve, gauss_values['A'], gauss_values['X0'], gauss_values['sigma'])
+    gauss_ax.semilogy(x_curve, y_curve)
+
+    # Show the different elements of the curve (ie the center and width)
+    gauss_ax.axvline(x=gauss_values['X0'], color='goldenrod', alpha=0.8)
+    gauss_ax.hlines(y=0.6065*(10**gauss_values['A']),
+                    xmin=(gauss_values['X0']-gauss_values['sigma']),
+                    xmax=(gauss_values['X0']+gauss_values['sigma']),
+                    color='turquoise', alpha=0.8, linewidth=1.2)
+
+    gauss_text = f"Center: {gauss_values['X0']:.2f}{DEGREE_TEXT}\n"
+    gauss_text = f"{gauss_text}Width: {gauss_values['sigma']:.2f}{DEGREE_TEXT}"
+    box_obj = AnchoredText(gauss_text, frameon=True, loc='upper left', pad=0.5, prop={'size':9})
+    plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
+    gauss_ax.add_artist(box_obj)
+
+
+    for n in range(len(sc_df['sc'])):
+        markers = marker_settings[sc_df['sc'][n]]
+        gauss_ax.semilogy(sc_df['x'][n], 10**(sc_df['y'][n]), label=sc_df['sc'][n],
+                          marker=markers['marker'], color=markers['color'])
+
+        # Plot the timeseries data
+        tseries_ax.semilogy(full_df[sc_df['sc'][n]]['Flux'],
+                            color=markers['color'], label=sc_df['sc'][n])
+    gauss_ax.legend(bbox_to_anchor=(0.2, 1.03, 1.0, 0.1), loc='upper left', ncols=6, fontsize=6)
+
+    gauss_ax.set_xlim(xmin_val-10, xmax_val+10)
+    tseries_ax.set_ylim(ymin_val*0.5, ymax_val*2)
+    #tseries_ax.set_xlim(eruption_dt - dt.timedelta(hours=1), eruption_dt + dt.timedelta(days=1)) # Need flare time for this
+    tseries_ax.xaxis.set_major_formatter(
+        mpl.dates.ConciseDateFormatter(tseries_ax.xaxis.get_major_locator(),
+                                       show_offset=False))
+    tseries_ax.tick_params(bottom=True, labelbottom=True,
+                           left=False, labelleft=False)
+
+
+    plt.savefig(data_path+f'GaussCurve_TimeSeries_{timestep.strftime("%d%b%Y_%Hh%M")}.png')
+    plt.show()
+
+
+
+
+
+def plot_gauss_fits(sc_dict, data_path, date, **kwargs):
+    """Plots the following time series: intensity, gauss center, and gauss sigma."""
+
+    fig, ax = plt.subplots(3, 1, figsize=[6,6], dpi=300, sharex=True)
+    plt.subplots_adjust(hspace=0.02)
+
+    ax[0].set_title(date.strftime("%H:%M - %d %b, %Y"), pad=20, loc='left')
+    ax[0].set_ylabel('Intensity')
+    ax[1].set_ylabel(r'Gauss $X_0$')
+    ax[2].set_ylabel(r'Gauss $\sigma$')
+
+
+    # Define the limits to be adjusted along the way
+    ylimits = {'intensity': [1e0, 1e-5],
+               'center': [np.nanmin(sc_dict['Gauss']['X0']), np.nanmax(sc_dict['Gauss']['X0'])],
+               'sigma': [np.nanmin(sc_dict['Gauss']['sigma']), np.nanmax(sc_dict['Gauss']['sigma'])]}
+
+    # Plot the intensities
+    for sc, s_df in sc_dict.items():
+        if sc == 'Gauss': # This is the df of gaussian fits
+            continue
+        mrkr = marker_settings[sc]
+
+        ax[0].semilogy(s_df['Flux'], color=mrkr['color'], label=mrkr['label'])
+        ax[0].fill_between(x = s_df.index,
+                           y1= s_df['Flux'] - s_df['Uncertainty'],
+                           y2= s_df['Flux'] + s_df['Uncertainty'],
+                          alpha=0.3, color=mrkr['color'])
+
+        ylimits['intensity'][0] = np.nanmin([ylimits['intensity'][0], np.nanmin(s_df['Flux'])] )
+        ylimits['intensity'][1] = np.nanmax([ylimits['intensity'][1], np.nanmax(s_df['Flux'])] )
+
+    ax[0].legend(loc='upper center', ncols=5, bbox_to_anchor=(0.5,1.15))
+
+
+    # Plot the flare location if its provided
+    if 'flare_loc' in kwargs.keys():
+        flare = kwargs['flare_loc']
+        ax[1].axhline(y=flare[0],
+                      linestyle='solid', color='k', alpha=0.5,
+                      label=f"Flare at [{flare[0]}, {flare[1]}]{DEGREE_TEXT}")
+        ax[1].legend()
+
+    # Plot the Gaussian results
+    for i, row in sc_dict['Gauss'].iterrows():
+        ax[1].errorbar(i, row['X0'], yerr=row['X0 err'],
+                      color='k', ecolor='grey', marker='o', markersize=3)
+
+        ax[2].errorbar(i, row['sigma'], yerr=row['sigma err'],
+                      color='k', ecolor='grey', marker='o', markersize=3)
+
+
+    for n in range(3):
+        # Mark the event start time
+        ax[n].axvline(x=date, color='k', linestyle='solid', linewidth=0.5)
+
+
+    ax[0].set_ylim([ylimits['intensity'][0]*0.5, ylimits['intensity'][1]*1.8])
+    ax[1].set_ylim([ylimits['center'][0]-20, ylimits['center'][1]+20])
+    ax[2].set_ylim([ylimits['sigma'][0]-20, ylimits['sigma'][1]+20])
+
+    ax[2].set_xlim([date - dt.timedelta(hours=1), date + dt.timedelta(hours=20)])
+    ax[2].xaxis.set_major_formatter(
+        mpl.dates.ConciseDateFormatter(ax[1].xaxis.get_major_locator(),
+                                       show_offset=False))
+
+
+    plt.savefig(f"{data_path}Intensity_Gauss_TimeProfiles.png", bbox_inches='tight')
+    plt.show()
+
+
+
+
+
