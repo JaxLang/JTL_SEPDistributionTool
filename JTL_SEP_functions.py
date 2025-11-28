@@ -10,6 +10,10 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import AnchoredText
 
+import glob
+import imageio
+from IPython.display import Image
+
 #from sunpy.time import parse_time
 import astropy.constants as aconst
 import astropy.units as u
@@ -58,9 +62,8 @@ JAX_TESTERS = False
 ## Event Class
 ################################################
 class SEPEvent:
-    def __init__(self, spacecraft, channels, dates, resampling, data_path, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
-        """spacecraft: list of spacecraft names (i.e. ['SOHO', 'Solar Orbiter'])
-        proton channels: dict of the channels [start, end] to be used
+    def __init__(self, channels, dates, resampling, data_path, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
+        """channels: dict of the channels [start, end] to be used for each spacecraft (given as keys)
         dates: [start, end] dates (flare start time in the 'start')
         resampling: the interval to resample the data to
         data_path: where the data is saved to
@@ -73,7 +76,15 @@ class SEPEvent:
         self.end = dates[1]
         self.channels = channels
         self.resampling = resampling
-        self.path = data_path
+
+        save_path = f"{data_path}SEPEvent_{dates[0].strftime("%d%b%Y")}/"
+        try:
+            #os.makedirs(data_path)
+            os.makedirs(save_path)
+        except FileExistsError:
+            pass
+        self.data_path = data_path
+        self.path = save_path
         if 'coord_sys' in kwargs.keys():
             coord_sys = kwargs['coord_sys']
             if coord_sys.lower().startswith('car'):
@@ -90,7 +101,7 @@ class SEPEvent:
             self.flare_loc = [np.nan, np.nan]
 
         # List and load the data
-        self.spacecraft_list = spacecraft
+        self.spacecraft_list = list(channels.keys())
 
         ## Solarmach data
         self.sm_data = {}
@@ -112,11 +123,11 @@ class SEPEvent:
     def _load_spacecraft_data(self):
         """Download the data for each sc"""
         for sc in self.spacecraft_list:
-            try:
+            if True: #try:
                 self.sc_data[sc] = load_sc_data(sc, self.sm_data, self.channels,
                                                 [self.start, self.end],
-                                                self.path, self.resampling)
-            except Exception as e:
+                                                self.data_path, self.resampling)
+            else: #except Exception as e:
                 print(f"Warning: Could not load data for {sc}: {e}")
 
     def get_sc_df(self, sc_name):
@@ -148,29 +159,33 @@ class SEPEvent:
             except Exception as e:
                 print(f"Warning: Could not radial scale for {sc}: {e}")
 
-    def plot_update(self, **kwargs):
+    def plot_intensities(self, **kwargs):
         """Plots the time series for each given observer."""
         bg_zone = []
         if 'background_window' in kwargs:
             bg_zone = kwargs['background_window']
         try:
-            plot_timeseries_result(self.sc_data, self.path, self.start, bg_zone)
+            plot_timeseries_result(self.sc_data, self.path, self.start, bg_zone);
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
+
+    def get_peak_fits(self):
+        """Calculates the Gaussian curve fitted to the peak intensities."""
+        find_and_plot_peak_intensity(self.sc_data, self.path, self.start)
 
     def calc_Gaussian_fit(self):
         """Calculates the Gaussian fits at each time interval."""
         try:
-            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.path)
+            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.path);
         except Exception as e:
             print(f"Warning: Could not calculate Gaussian fit: {e}")
 
     def plot_gauss_results(self):
         try:
             if np.isnan(self.flare_loc[0]):
-                plot_gauss_fits(self.sc_data, self.path, self.start)
+                plot_gauss_fits(self.sc_data, self.path, self.start);
             else:
-                plot_gauss_fits(self.sc_data, self.path, self.start, flare_loc=self.flare_loc)
+                plot_gauss_fits(self.sc_data, self.path, self.start, flare_loc=self.flare_loc);
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
@@ -191,7 +206,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
         return sm_loop
 
     # Set up the time list to iterate through
-    starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour-5, 0) #Gathering enough background too
+    starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour, 0) - dt.timedelta(hours=2) #Gathering enough background too
     date_list = pd.date_range(starting_time, dates[1], freq=resampling)
 
     sm_df = {}
@@ -653,7 +668,7 @@ def radial_scaling_calculation(df, scaling_values):
                 chosen_unc_limit = unc_limit_plus
             elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
                 chosen_unc_limit = unc_limit_minus
-            else:
+            else: # JAX TO FIX
                 print("There's a problem with the limits")
                 print("OG flux: ", df.loc[t, 'Flux'])
                 print("OG rad: ", df.loc[t, 'r_dist'])
@@ -808,10 +823,10 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
     obs = list(sc_dict.keys())
 
     for i in sc_dict[obs[0]].index: # iterate through each timestep
-        if i.day != 29:  # JAX: REMOVE AFTER TESTING
-            continue
+        #if i.day != 29: #if np.isnan(sc_dict[obs[0]]['r_dist']): # Doesn't try calculate when solarmach data is not available
+        #    continue
         x, xerr, y, yerr, sc_arr = ([] for i in range(5))
-        print(i)
+        #print(i)
 
         for sc, df in sc_dict.items():
             sc_arr.append(sc)
@@ -821,12 +836,12 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
             xerr.append(float(df.loc[i, 'foot_long_error']))
 
         # Calculate the fit now
-        print(x)
-        print(y)
+        #print(x)
+        #print(y)
         timestep_dict = {'x':x, 'y':y, 'sc':sc_arr, 'xerr':xerr, 'yerr':yerr}
         #gauss_results = basic_gauss_fit(timestep_dict)
         gauss_results = odr_gauss_fit(timestep_dict, prev_gauss)
-        print(gauss_results)
+        #print(gauss_results)
         a_arr.append( gauss_results['A'] )
         x0_arr.append( gauss_results['X0'] )
         sigma_arr.append( gauss_results['sigma'] )
@@ -864,6 +879,19 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
 
     fits_df.to_csv(data_path+'Gaussian_fit_results.csv')
 
+    # Combine all figures into a gif to display
+    png_dir = data_path + 'Gauss_fits/'
+    images = []
+    for filename in sorted(os.listdir(png_dir)):
+        if filename.endswith('.png'):
+            filepath = os.path.join(png_dir, filename)
+            images.append(imageio.imread(filepath))
+
+    imageio.mimsave(png_dir+'Gauss_fits.gif', images, duration=150, loop=0)
+
+    gif = Image(filename=png_dir+"Gauss_fits.gif")
+    display(gif)
+
     return fits_df
 
 
@@ -876,7 +904,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     """Plots the time series for each observer."""
     # Determine how many subplots are needed
     obs = list(sc_dict.keys())
-    print(obs)
+    #print(obs)
 
     fig, ax = plt.subplots(len(obs), 1, figsize=[5, len(obs)+2.5], dpi=300, sharex=True)
     fig.subplots_adjust(hspace=0.02)
@@ -911,7 +939,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
         ax[n].legend(loc='upper right', alignment='left')
         ax[n].yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=3))
         ax[n].minorticks_on()
-        ax[n].set_ylim(1e-5,5e0)
+        #ax[n].set_ylim(1e-5,5e0) # JAX TO FIX
 
     xmin = date - dt.timedelta(hours=5)
     xmax = date + dt.timedelta(hours=22)
@@ -921,7 +949,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     ax[n-1].xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(locator, show_offset=False))
 
     label=''
-    if input('Save the file? ')=='y':
+    if False: #input('Save the file? ')=='y':
         label = '_' + input('Save file key word: ')
         plt.savefig(data_path+f'SEP_Intensities_{date.strftime("%d%m%y")}{label}.png')
     plt.show()
@@ -929,26 +957,39 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     #plt.clf()
 
 
-def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep):
-    """Plotting two subplots, left the fitted gaussian curve, right the time series."""
+def find_and_plot_peak_intensity(sc_dict, data_path, date):
+    """Reading in all the spacecraft datasets, this function finds the peak of each dataset
+        and fits a Gaussian curve to the resulting set of peaks."""
+
+    # Select a reasonable window for the peak to be in
+    peak_window_end = date + dt.timedelta(hours=10)
 
 
-    ymin_val = 1e5
-    ymax_val = 1e-5
-    xmin_val = 0
-    xmax_val = 0
-    for sc in ['SOHO','PSP','STEREO-A','Solar Orbiter']:
-        ymintmp = np.nanmin(full_df[sc]['Flux'])
-        ymaxtmp = np.nanmax(full_df[sc]['Flux'])
-        ymin_val = min(ymin_val, ymintmp)
-        ymax_val = max(ymax_val, ymaxtmp)
+    # Iterate through each spacecraft df and save the intensity and datetime of the peak
+    peak_y, peak_yerr, peak_x, peak_xerr, peak_time, peak_sc = ([] for i in range(6))
+    for sc, sc_df in sc_dict.items():
+        peak_index = sc_df.loc[date:peak_window_end, 'Flux'].idxmax()
 
-        xmintmp = np.nanmin(full_df[sc]['foot_long'])
-        xmaxtmp = np.nanmax(full_df[sc]['foot_long'])
-        xmin_val = min(xmin_val, xmintmp)
-        xmax_val = max(xmax_val, xmaxtmp)
+        peak_time.append(peak_index)
+        peak_sc.append(sc)
+        peak_y.append(float(np.log10(sc_df.loc[peak_index, 'Flux'])))
+        peak_yerr.append(float(np.log10(sc_df.loc[peak_index, 'Uncertainty'])))
+        peak_x.append(float(sc_df.loc[peak_index, 'foot_long']))
+        peak_xerr.append(float(sc_df.loc[peak_index, 'foot_long_error']))
 
-    fig = plt.figure(figsize=[10,3], dpi=300)
+    # Fit the Gaussian curve to the data
+    peak_data_dict = {'sc': peak_sc,
+                      'times': peak_time,
+                      'y': peak_y,
+                      'yerr': peak_yerr,
+                      'x': peak_x,
+                      'xerr': peak_xerr}
+    peak_fit_results = odr_gauss_fit(peak_data_dict, {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}) #JAX: can prolly provide better beta's'
+    print(peak_fit_results)
+    print(peak_data_dict)
+
+    # Plot
+    fig = plt.figure(figsize=[10,3], dpi=250)
     plt.axis('off')
 
     grid = plt.GridSpec(nrows=1, ncols=3, wspace=0.03)
@@ -958,6 +999,89 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
 
     gauss_ax.set_ylabel('Intensity')
     gauss_ax.set_xlabel('Footprint Longitude')
+    tseries_ax.set_xlabel('Time & Date')
+
+    # Add a text box with the energy and species - JAX: NEEDS TO BE ADAPTABLE
+    box_obj = AnchoredText('Peak Fits\n14 MeV Protons',
+                           frameon=True, loc='lower right', pad=0.5, prop={'size':9})
+    plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
+    tseries_ax.add_artist(box_obj)
+
+    ylimits = [1e5,1e-5]
+    xlimits = [0,0]
+
+    for n, sc in enumerate(peak_sc):
+        mrkr = marker_settings[sc]
+        ylimits[0] = np.nanmin( [ np.nanmin(sc_dict[sc]['Flux']), ylimits[0] ] )
+        ylimits[1] = np.nanmax( [ np.nanmax(sc_dict[sc]['Flux']), ylimits[1] ] )
+        xlimits[0] = np.nanmin( [ np.nanmin(sc_dict[sc]['foot_long']), xlimits[0] ] )
+        xlimits[1] = np.nanmax( [ np.nanmax(sc_dict[sc]['foot_long']), xlimits[1] ] )
+
+        # Plot the markers in both plots to indicate the point values being used
+        gauss_ax.errorbar(peak_x[n], 10**(peak_y[n]),
+                          xerr=peak_xerr[n], yerr=10**(peak_yerr[n]),
+                          color=mrkr['color'], ecolor=mrkr['color'],
+                          marker=mrkr['marker'])#, label=f"{mrkr['label']} ({peak_time[n].strftime("%H:%M %d %b. %y")})")
+
+        tseries_ax.plot(peak_time[n], 10**(peak_y[n]),
+                        color=mrkr['color'], marker=mrkr['marker'],
+                        label=f"{mrkr['label']} ({peak_time[n].strftime("%H:%M %d %b. %y")})")
+
+        # Plot the full time series
+        tseries_ax.semilogy(sc_dict[sc]['Flux'], color=mrkr['color'])#, label=mrkr['label'])
+
+    tseries_ax.legend(loc='upper right')
+
+    # Plot the Gaussian Curve
+    x_curve = np.linspace(-180, 180, 200) # JAX: must be adapted
+    y_curve = 10**(log_gauss_function(x_curve, peak_fit_results['A'], peak_fit_results['X0'], peak_fit_results['sigma']))
+
+    gauss_ax.semilogy(x_curve, y_curve, color='k')
+    gauss_ax.axvline(x=peak_fit_results['X0'], color='goldenrod', linewidth=1.2, alpha=0.8)
+    gauss_ax.hlines(y=0.6065*(10**peak_fit_results['A']),
+                    xmin=(peak_fit_results['X0']-peak_fit_results['sigma']),
+                    xmax=(peak_fit_results['X0']+peak_fit_results['sigma']),
+                    color='turquoise', linewidth=1.2, alpha=0.8)
+
+    # Provide error range
+    #yerr_curve =
+
+    gauss_ax.set_xlim(xlimits)
+    gauss_ax.set_ylim(ylimits)
+
+    plt.show()
+
+
+
+
+
+
+
+
+def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep):
+    """Plotting two subplots, left the fitted gaussian curve, right the time series."""
+
+
+    ylimits = [1e5, 1e-5]
+    xlimits= [0, 0]
+    for sc in ['SOHO','PSP','STEREO-A','Solar Orbiter']:
+        ylimits[0] = np.nanmin([np.nanmin(full_df[sc]['Flux']), ylimits[0]])
+        ylimits[1] = np.nanmax([np.nanmax(full_df[sc]['Flux']), ylimits[1]])
+
+        xlimits[0] = np.nanmin([np.nanmin(full_df[sc]['foot_long']), xlimits[0] ])
+        xlimits[1] = np.nanmax([np.nanmax(full_df[sc]['foot_long']), xlimits[1] ])
+
+    fig = plt.figure(figsize=[10,3], dpi=250)
+    plt.axis('off')
+
+    grid = plt.GridSpec(nrows=1, ncols=3, wspace=0.03)
+
+    gauss_ax = fig.add_subplot(grid[0,0])
+    tseries_ax = fig.add_subplot(grid[0,1:], sharey=gauss_ax)
+
+    gauss_ax.set_ylabel('Intensity')
+    gauss_ax.set_xlabel('Footprint Longitude')
+    tseries_ax.set_xlabel('Time & Date')
 
     # Add a text box with the energy and species
     box_obj = AnchoredText('14 MeV Protons\n'+timestep.strftime("%H:%M %d %b %Y"),
@@ -997,8 +1121,11 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
                             color=markers['color'], label=sc_df['sc'][n])
     gauss_ax.legend(bbox_to_anchor=(0.2, 1.03, 1.0, 0.1), loc='upper left', ncols=6, fontsize=6)
 
-    gauss_ax.set_xlim(xmin_val-10, xmax_val+10)
-    tseries_ax.set_ylim(ymin_val*0.5, ymax_val*2)
+    gauss_ax.set_xlim(xlimits[0]-10, xlimits[1]+10)
+    tseries_ax.set_ylim(ylimits[0]*0.5, ylimits[1]*2)
+    if ylimits[0] < 0:
+        print(ylimits)
+        jax = input()
     #tseries_ax.set_xlim(eruption_dt - dt.timedelta(hours=1), eruption_dt + dt.timedelta(days=1)) # Need flare time for this
     tseries_ax.xaxis.set_major_formatter(
         mpl.dates.ConciseDateFormatter(tseries_ax.xaxis.get_major_locator(),
@@ -1008,7 +1135,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
 
 
     plt.savefig(data_path+f'GaussCurve_TimeSeries_{timestep.strftime("%d%b%Y_%Hh%M")}.png')
-    plt.show()
+    plt.clf()
 
 
 
