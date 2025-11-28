@@ -8,6 +8,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{hyperref}
+\usepackage{graphicx}
 
 
 \begin{document}
@@ -148,6 +149,73 @@
         \item RV not joining for next meeting on 2 December 2025.
         \item Meeting on 16 December 2025 merged with JTL's quarterly update with ND and RV.
     \end{enumerate}
+
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \chapter{November 20, 2025}
+    \textit{Attendees:} Nina Dresing, Jax T Lang. \\
+
+    \begin{enumerate}
+        \item All changes implemented and uncertainty concern is fixed (prior to 18 Nov update meeting, the uncertainty values were very high, especially for SolO). 
+        \item When calculating Gaussian curves, I ensure that any points with nan values or values less than $1\times10^{-6}$ are removed. This tool code removes points with nan values and zero values. Might adapt later if need-be.
+        \item If coordinate system is set to Stonyhurst then the Gaussians should be fitted from -180 to +180; if it is set to Carrington then 0 to 360.
+        \item Spacecraft need to be ordered so that the maximum intensity is centered.
+\begin{table}[h!]
+\centering
+\begin{tabular}{lllll}
+\textbf{} & \textbf{SOHO} & \textbf{PSP} & \textbf{STEREO-A} & \textbf{Wind} \\ \cline{5-5} 
+\textbf{x} & -150 & -90 & \multicolumn{1}{l|}{120} & \multicolumn{1}{l|}{170} \\ \cline{5-5} 
+\textbf{y} & 1000 & 250 & \multicolumn{1}{l|}{350} & \multicolumn{1}{l|}{1500} \\ \cline{5-5} 
+\multicolumn{5}{l}{\textbf{}} \\\hline
+ & \textbf{STEREO-A} & \textbf{Wind} & \textbf{SOHO} & \textbf{PSP} \\ \cline{3-3}
+\textbf{x} & \multicolumn{1}{l|}{120} & \multicolumn{1}{l|}{170} & \textit{-150 (210)} & \textit{-90 (270)} \\ \cline{3-3}
+\textbf{y} & \multicolumn{1}{l|}{350} & \multicolumn{1}{l|}{1500} & 1000 & 250 \\ \cline{3-3}
+\end{tabular}
+\caption{Here we see in the top part of the table how the max intensity (Wind) is on the outer edge. So we adjust this by wrapping the values (from -180:180, to 0:360) and shifting the starting point for the list so that the maximum intensities are in the center with the correct order.}
+\end{table}
+        \item Still to add vline in time series to indicate the timestamp.
+        \item Try to define axis limits based on the data (must be consistent for every run).
+    \end{enumerate}
+
+
+
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \chapter{November 27, 2025}
+    \textit{Attendees:} Nina Dresing, Jax T Lang. \\
+
+    \begin{enumerate}
+        \item Converted the whole tool to a class with functions running within, seems much smoother now.
+        \item IC: Need to explicitly state that STA-HET is the baseline.
+        \item RS: Small need-to-know info at the section, longer breakdown in 'Appendix'.
+        \item RS: What if only \texttt{a} is provided and not \texttt{a $\pm$ b}?
+        \item Before Gaussian Fit section: Plot old school \textit{Peak Intensity Gaussian Fit} to allow user the option to exclude a spacecraft from fitting calculations.
+        \item GF: 
+        \begin{itemize}
+            \item (Option A) Plot the first fig, then \texttt{clf} the rest. \\ (Option B) Don't show any plots, just show end gif.\\
+        \begin{verbatim}
+            from IPython.display import Image
+            ...
+            gif = Image(filename="Gaussfits.gif")
+            display(gif)
+        \end{verbatim}
+        \item Save the csv after dropping all lines that are just \texttt{NaN}s.
+        \item Move bulk of info to appendix.
+        \end{itemize}
+         \item Time series plot: 
+        \begin{itemize}
+            \item Add xlabel: "Time \& Date"
+            \item Add energy labels to (all) legends. Make the top legend 2 columns: "PSP ISOIS HET: 0.9 - 1.4 MeV protons"
+            \item Explain all elements: flare start time (vertical line), flare location (horizontal)...
+        \end{itemize}
+        \item Add Appendix with calculation explanations.
+        \item Add glossary with optional functions for the user (download the data, plot time series, adjust figure?).
+        \item Remove Latitude cell.
+        \item Start notebook with an image of example result.
+        \item Add table of contents.
+    \end{enumerate}
+
+
 
 
     
