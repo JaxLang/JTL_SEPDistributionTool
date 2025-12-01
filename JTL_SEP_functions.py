@@ -111,6 +111,11 @@ class SEPEvent:
         self.sc_data = {}
         self._load_spacecraft_data()
 
+        # Determine if the location limits (x axis in Gaussian plots) need to be adjusted.
+        self.peak_data = {}
+        self._get_peak_fits()
+        # self._check_xboundary_centering()
+
 
     def _load_solarmach_loop(self):
         """Download the solarmach data for the time period."""
@@ -133,6 +138,9 @@ class SEPEvent:
     def get_sc_df(self, sc_name):
         """Return the df to the user"""
         return self.sc_data.get(sc_name)
+
+    def get_peak_df(self):
+        return self.peak_data
 
     def background_subtract(self, background_window):
         """Given a window by the user, the function calculates the average, reduces the
@@ -169,9 +177,17 @@ class SEPEvent:
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
-    def get_peak_fits(self):
+    def _get_peak_fits(self):
         """Calculates the Gaussian curve fitted to the peak intensities."""
-        find_and_plot_peak_intensity(self.sc_data, self.path, self.start)
+        self.peak_data = find_peak_intensity(self.sc_data, self.path, self.start)
+
+    def plot_peak_fits(self):
+        """Plots the Gaussian curve fitted to the peak intensities."""
+        plot_peak_intensity(self.sc_data, self.path, self.start, self.peak_data)
+
+    def _check_xboundary_centering(self):
+        x_boundary_adjustments(self.sc_data, self.peak_data)
+
 
     def calc_Gaussian_fit(self):
         """Calculates the Gaussian fits at each time interval."""
@@ -736,6 +752,32 @@ def background_subtracting(df, data_path, background_window):
 
 
 
+
+################################################
+## Adjust the longitudes to ensure correct centering
+################################################
+# def x_boundary_adjustments(sc_dict, peak_dict):
+#     """Using the peak values to determine what happens, we're adjusting the longitude values to make sure the number line loops around efficiently.
+#     e.g. Four locations (with the peak intensity in the center): 90, 150, -170, -120
+#             These imply the flare is ~180 degrees, we adjust this to be a 360 degree line.
+#             New locations: 90, 150, 190, 240 :: done by adding 360 to the negative values.
+#
+#     e.g. Four locations: -30, -10, 20, 60
+#             These are still appropriate to work with (using boundaries of -180:180)."""
+#
+#     # Get the position of the max(amplitude), this is where the flare source is likely to be closest to
+#     max_idx = np.nanargmax(peak_dict['y'])
+#
+#     longitude_gt_90 = 0 # counts the number of sc with a long > 90
+#     for n, flong in enumerate(peak_dict['x']):
+#         if abs(flong) > 90:
+#             longitude_gt_90 += 1
+#
+#     # Check if
+
+
+
+
 ################################################
 ## Gaussian fitting
 ################################################
@@ -957,7 +999,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     #plt.clf()
 
 
-def find_and_plot_peak_intensity(sc_dict, data_path, date):
+def find_peak_intensity(sc_dict, data_path, date):
     """Reading in all the spacecraft datasets, this function finds the peak of each dataset
         and fits a Gaussian curve to the resulting set of peaks."""
 
@@ -988,6 +1030,13 @@ def find_and_plot_peak_intensity(sc_dict, data_path, date):
     print(peak_fit_results)
     print(peak_data_dict)
 
+    peak_data_results = peak_data_dict | peak_fit_results
+
+    return peak_data_results
+
+def plot_peak_intensity(sc_dict, data_path, date, peak_data_results):
+    """Plotting the results of the find_peak_intensity function."""
+
     # Plot
     fig = plt.figure(figsize=[10,3], dpi=250)
     plt.axis('off')
@@ -1010,7 +1059,7 @@ def find_and_plot_peak_intensity(sc_dict, data_path, date):
     ylimits = [1e5,1e-5]
     xlimits = [0,0]
 
-    for n, sc in enumerate(peak_sc):
+    for n, sc in enumerate(peak_data_results['sc']):
         mrkr = marker_settings[sc]
         ylimits[0] = np.nanmin( [ np.nanmin(sc_dict[sc]['Flux']), ylimits[0] ] )
         ylimits[1] = np.nanmax( [ np.nanmax(sc_dict[sc]['Flux']), ylimits[1] ] )
@@ -1018,41 +1067,76 @@ def find_and_plot_peak_intensity(sc_dict, data_path, date):
         xlimits[1] = np.nanmax( [ np.nanmax(sc_dict[sc]['foot_long']), xlimits[1] ] )
 
         # Plot the markers in both plots to indicate the point values being used
-        gauss_ax.errorbar(peak_x[n], 10**(peak_y[n]),
-                          xerr=peak_xerr[n], yerr=10**(peak_yerr[n]),
+        gauss_ax.errorbar(peak_data_results['x'][n], 10**(peak_data_results['y'][n]),
+                          xerr=peak_data_results['xerr'][n], yerr=10**(peak_data_results['yerr'][n]),
                           color=mrkr['color'], ecolor=mrkr['color'],
-                          marker=mrkr['marker'])#, label=f"{mrkr['label']} ({peak_time[n].strftime("%H:%M %d %b. %y")})")
+                          marker=mrkr['marker'])#, label=f"{mrkr['label']} ({peak_data_results['times'][n].strftime("%H:%M %d %b. %y")})")
 
-        tseries_ax.plot(peak_time[n], 10**(peak_y[n]),
+        tseries_ax.plot(peak_data_results['times'][n], 10**(peak_data_results['y'][n]),
                         color=mrkr['color'], marker=mrkr['marker'],
-                        label=f"{mrkr['label']} ({peak_time[n].strftime("%H:%M %d %b. %y")})")
+                        label=f"{mrkr['label']} ({peak_data_results['times'][n].strftime("%H:%M %d %b. %y")})")
 
         # Plot the full time series
         tseries_ax.semilogy(sc_dict[sc]['Flux'], color=mrkr['color'])#, label=mrkr['label'])
 
-    tseries_ax.legend(loc='upper right')
+    tseries_ax.legend(loc='upper right', fontsize=8)
 
     # Plot the Gaussian Curve
     x_curve = np.linspace(-180, 180, 200) # JAX: must be adapted
-    y_curve = 10**(log_gauss_function(x_curve, peak_fit_results['A'], peak_fit_results['X0'], peak_fit_results['sigma']))
+    y_curve = 10**(log_gauss_function(x_curve, peak_data_results['A'], peak_data_results['X0'], peak_data_results['sigma']))
 
     gauss_ax.semilogy(x_curve, y_curve, color='k')
-    gauss_ax.axvline(x=peak_fit_results['X0'], color='goldenrod', linewidth=1.2, alpha=0.8)
-    gauss_ax.hlines(y=0.6065*(10**peak_fit_results['A']),
-                    xmin=(peak_fit_results['X0']-peak_fit_results['sigma']),
-                    xmax=(peak_fit_results['X0']+peak_fit_results['sigma']),
+    gauss_ax.axvline(x=peak_data_results['X0'], color='goldenrod', linewidth=1.2, alpha=0.8)
+    gauss_ax.hlines(y=0.6065*(10**peak_data_results['A']),
+                    xmin=(peak_data_results['X0']-peak_data_results['sigma']),
+                    xmax=(peak_data_results['X0']+peak_data_results['sigma']),
                     color='turquoise', linewidth=1.2, alpha=0.8)
 
     # Provide error range
-    #yerr_curve =
+    yerr_curve = log_gauss_error_range_calc(x_curve, y_curve, peak_data_results)
+    gauss_ax.fill_between(x_curve, y_curve-yerr_curve, y_curve+yerr_curve, alpha=0.7, color='peachpuff')
 
-    gauss_ax.set_xlim(xlimits)
-    gauss_ax.set_ylim(ylimits)
+    # Add the text
+    gauss_text = f"Center = {peak_data_results['X0']:.1f}{DEGREE_TEXT}\n"
+    gauss_text = f"{gauss_text}Width = {peak_data_results['sigma']:.1f}{DEGREE_TEXT}"
+    box_obj = AnchoredText(gauss_text, frameon=True, loc='upper left', pad=0.5, prop={'size':8})
+    plt.setp(box_obj.patch, facecolor='aliceblue', alpha=0.8)
+    gauss_ax.add_artist(box_obj)
 
+
+    gauss_ax.set_xlim([xlimits[0]-40, xlimits[1]+40])
+    gauss_ax.set_ylim([ylimits[0]*0.5, ylimits[1]*10])
+    tseries_ax.set_xlim(date - dt.timedelta(hours=1), date + dt.timedelta(hours=20))
+    tseries_ax.xaxis.set_major_formatter(
+        mpl.dates.ConciseDateFormatter(tseries_ax.xaxis.get_major_locator(),
+                                       show_offset=False))
+    tseries_ax.tick_params(left=False, labelleft=False)
+
+
+    plt.savefig(data_path+'PeakFits.png', bbox_inches='tight')
     plt.show()
 
 
+def log_gauss_error_range_calc(x_arr, y_arr, peak_fit):
+    """Calculate the uncertainty of the Gaussian result for each timestep."""
+    a = peak_fit['A']
+    x0 = peak_fit['X0']
+    sigma = peak_fit['sigma']
+    a_err = peak_fit['A err']
+    x0_err = peak_fit['X0 err']
+    sigma_err = peak_fit['sigma err']
+    res = peak_fit['res']
 
+    y_err = []
+    for n, xx in enumerate(x_arr):
+        partial_a = 1
+        partial_x0 = (xx - x0) / ( np.log(10) * sigma**2 )
+        partial_sigma = ( (xx - x0)**2 ) / ( np.log(10) * sigma**3 )
+
+        delta_y = np.sqrt( (a_err*partial_a)**2 + (x0_err*partial_x0)**2 + (sigma_err*partial_sigma)**2 + res)
+        y_err.append(y_arr[n] * np.log(10) * float(delta_y))
+
+    return y_err
 
 
 
@@ -1198,7 +1282,7 @@ def plot_gauss_fits(sc_dict, data_path, date, **kwargs):
         ax[n].axvline(x=date, color='k', linestyle='solid', linewidth=0.5)
 
 
-    ax[0].set_ylim([ylimits['intensity'][0]*0.5, ylimits['intensity'][1]*1.8])
+    ax[0].set_ylim([ylimits['intensity'][0]*0.5, ylimits['intensity'][1]*5])
     ax[1].set_ylim([ylimits['center'][0]-20, ylimits['center'][1]+20])
     ax[2].set_ylim([ylimits['sigma'][0]-20, ylimits['sigma'][1]+20])
 
