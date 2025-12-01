@@ -218,6 +218,36 @@
 
 
 
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % \chapter{December 1, 2025}
+    % \textit{JTL thoughts.} \\
+
+    % Ensuring the location of the flare is not a problem (i.e. if the points are [150, 175, -165, -130], then the curve fit won't work):
+    % \begin{itemize}
+    %     \item If the abs(longitude) for at least 3 sc > 90 then add 360 to the negative values. \textbf{This results in limits of 0:360.}
+    %     \begin{table*}[h!]
+    %         \centering
+    %         \begin{tabular}{rcccc}
+    %              original & 150 & 175 & -165 & -130 \\
+    %              updated & 150 & 175 & 195 & 230 \\
+    %         \end{tabular}
+    %     \end{table*}
+    %     \item If the abs(longitude) for at least 3 sc < 90, then leave it. \textbf{This results in limits of -180:180.}
+    %     \begin{table*}[h!]
+    %         \centering
+    %         \begin{tabular}{rcccc}
+    %              original & -150 & -100 & -45 & 30 \\
+    %              updated & -150 & -100 & -45 & 30 \\
+    %         \end{tabular}
+    %     \end{table*}
+    % \end{itemize}
+    % Alternatively:
+    % \begin{itemize}
+    %     \item If the max amplitude comes from a sc with abs(longitude) > 90. Then the limits are 0:360.
+    %     \item if the max amplitude comes from a sc with abs(longitude) < 90. Then the limits are -180:180.
+    % \end{itemize}
+    % or both...
+    % \textit{Using the peak calculations: the sc with the max(intensity) has an abs(longitude) > 90 \textbf{and} the abs(longitude) of at least 3 sc is > 90; the limits become 0:360.}
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{December 2, 2025}
@@ -385,7 +415,29 @@
 
 
     \section{Gaussian Fitting}
-    
-    
+
+
+    \subsection{Uncertianty calculation of the Gaussian result}
+
+    When calculating the Gaussian fit, the following parameters are returned: $A$, $X_0$, and $\sigma$ (and their errors), and the residual.
+
+    To calculate the uncertainty to plot the error range, we use:
+    \begin{align}
+        \Delta y_i &= y_i \; \ln(10) \sqrt{\sum (\beta_{errors} \; \cdot \tfrac{\partial y}{\partial \beta})^2 }
+    \end{align}
+    such that:
+    \begin{align}
+        y &= A \cdot \exp\left[-\frac{(x-X_0)^2}{2 \sigma^2} \right] \\
+        \ln(y) &= \ln(A) - \frac{(x-X_0)^2}{2 \; \ln(10) \; \sigma^2}
+    \end{align}
+    gives us
+    \begin{align}
+        \Delta [\ln(y)] &= \sqrt{\sum \left(\Delta \beta \cdot \tfrac{\partial \ln(y)}{\partial \beta}\right)^2 } \\
+        \tfrac{\partial \ln(y)}{\partial \ln(A)} &= 1\\
+        \tfrac{\partial \ln(y)}{\partial X_0} &= \frac{x - X_0}{\ln(10) \; \sigma^2}\\
+        \tfrac{\partial \ln(y)}{\partial \sigma} &=  \frac{(x-x_0)^2}{\ln(10) \; \sigma^3} \\
+        \implies \Delta [\ln(y)] &= \sqrt{\left(\Delta \ln(A) \cdot 1\right)^2 + \left(\Delta X_0 \cdot  \frac{x - X_0}{\ln(10) \; \sigma^2} \right)^2 + \left( \Delta \sigma \cdot \frac{(x-x_0)^2}{\ln(10) \; \sigma^3} \right)^2} \\
+        \implies \Delta y &= y \ln(10) \Delta [\ln(y)].
+    \end{align}
 
 \end{document}
