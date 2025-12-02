@@ -251,13 +251,34 @@
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{December 2, 2025}
-    \textit{Attendees:} Jax T Lang. \\
+    \textit{Attendees:} Jan Gieseler, Nina Dresing, Jax T Lang. \\
 
     \begin{enumerate}
-        \item 
+        \item Start should create two folders: one for storing the raw data files (cdf's), and another `user output' folder that shows any plots or csv files they want.
+        \item JTL to add more markdown descriptions to the user (as well as warnings about certain cells taking quite a while). And ``For more information, see the appendix below".
+        \item Write a new df (as a deepcopy of previous steps df) for each new function: \texttt{df\_raw, df\_bg, df\_ic, \& df\_rs}.\\
+        If the user wants to avoid performing certain functions then they need to respond to prompt as "FALSE" then the deep copy is used rather than adjusting the data.
+        \item Use peak fits for the initial gauss parameters.
+        \item When calling the peak fitting function, allow the user to provide the end time for the peaks to appear after the given start time. Default to 5 hours. 
+        \item Use \texttt{plt.close("all")} to not plot the gaussian fits.
+        \item Solarmach loop: 
+        \begin{itemize}
+            \item Ask the user if they want to search for the vsw each time or provide a default value (like 400 km/s).
+            \item Must check if the user wants to update the previously loaded data (if any settings are changed like resample, sc, datetimes). \texttt{reuse\_previous\_data = True}.
+        \end{itemize}
+        \item Plot the intensity profiles before calculating the solarmach loop to allow the user to check the event before waiting too long.
+        \item JG added \texttt{tqdm} function to py file to show progress bar.
+        \item \textbf{Gauss fits need to use a reference point to calculate to avoid problems with Stonyhurst/Carrington coords limits.} Use the flare longitude as the reference point, else use the footpoint of the sc with the max(intensity) at the time of the max intensity. Then still show the correct coordinates on plots.\\
+        \begin{itemize}
+            \item e.g. flare at 65$^{\circ}$ shows 100 degree range as: 15 - 115$^{\circ}$.
+            \item e.g. flare at 130$^{\circ}$ shows 100 degree range as: 80 - 180$^{\circ}$.
+            \item e.g. flare at -160$^{\circ}$ shows 100 degree range as: (-210) - (-110)$^{\circ}$ \\
+            OR using 360 degrees: flare at 200$^{\circ}$ with a 100 degree range: 150 - 250$^{\circ}$.
+        \end{itemize}
+        \item Need a name for the tool. Can't use SEPspread. Nina's looking at SEP Spatial Distribution Tool.
     \end{enumerate}
 
-
+\textbf{Looking to do a main code \textit{handover} next week Monday, when Jan will try to incorporate it to the SOLER Tools github.}
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{December 16, 2025}
