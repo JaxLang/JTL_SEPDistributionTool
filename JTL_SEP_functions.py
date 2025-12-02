@@ -76,7 +76,7 @@ JAX_TESTERS = False
 ## Event Class
 ################################################
 class SEPEvent:
-    def __init__(self, channels, dates, resampling, data_path, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
+    def __init__(self, channels, dates, resampling, data_paths, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
         """channels: dict of the channels [start, end] to be used for each spacecraft (given as keys)
         dates: [start, end] dates (flare start time in the 'start')
         resampling: the interval to resample the data to
@@ -91,14 +91,15 @@ class SEPEvent:
         self.channels = channels
         self.resampling = resampling
 
-        save_path = f"{data_path}SEPEvent_{dates[0].strftime("%d%b%Y")}/"
+        out_path = f"{data_paths[0]}SEPEvent_{dates[0].strftime("%d%b%Y")}/"
+        raw_path = data_paths[1]
         try:
-            #os.makedirs(data_path)
-            os.makedirs(save_path)
+            os.makedirs(out_path)
+            os.makedirs(raw_path)
         except FileExistsError:
             pass
-        self.data_path = data_path
-        self.path = save_path
+        self.out_path = out_path
+        self.raw_path = raw_path
         if 'coord_sys' in kwargs.keys():
             coord_sys = kwargs['coord_sys']
             if coord_sys.lower().startswith('car'):
@@ -127,7 +128,7 @@ class SEPEvent:
 
         # Determine if the location limits (x axis in Gaussian plots) need to be adjusted.
         self.peak_data = {}
-        self._get_peak_fits()
+        #self._get_peak_fits()
         # self._check_xboundary_centering()
 
 
@@ -135,7 +136,7 @@ class SEPEvent:
         """Download the solarmach data for the time period."""
         try:
             self.sm_data = solarmach_loop(self.spacecraft_list, [self.start, self.end],
-                                              self.path, self.resampling, self.flare_loc)
+                                              self.out_path, self.resampling, self.flare_loc)
         except Exception as e:
             print(f"Warning: Could not load solarmach data: {e}")
 
@@ -145,7 +146,7 @@ class SEPEvent:
             if True: #try:
                 self.sc_data[sc] = load_sc_data(sc, self.sm_data, self.channels,
                                                 [self.start, self.end],
-                                                self.data_path, self.resampling)
+                                                self.raw_path, self.resampling)
             else: #except Exception as e:
                 print(f"Warning: Could not load data for {sc}: {e}")
 
@@ -161,7 +162,7 @@ class SEPEvent:
         intensity by this average, and results in a background reduced dataset."""
         for sc in self.spacecraft_list:
             try:
-                self.sc_data[sc] = background_subtracting(self.sc_data.get(sc), self.path, background_window)
+                self.sc_data[sc] = background_subtracting(self.sc_data.get(sc), background_window)
             except Exception as e:
                 print(f"Warning: Could not background subtract for {sc}: {e}")
 
@@ -187,17 +188,18 @@ class SEPEvent:
         if 'background_window' in kwargs:
             bg_zone = kwargs['background_window']
         try:
-            plot_timeseries_result(self.sc_data, self.path, self.start, bg_zone);
+            plot_timeseries_result(self.sc_data, self.out_path, self.start, bg_zone);
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
     def _get_peak_fits(self):
         """Calculates the Gaussian curve fitted to the peak intensities."""
-        self.peak_data = find_peak_intensity(self.sc_data, self.path, self.start)
+        self.peak_data = find_peak_intensity(self.sc_data, self.out_path, self.start)
 
     def plot_peak_fits(self):
         """Plots the Gaussian curve fitted to the peak intensities."""
-        plot_peak_intensity(self.sc_data, self.path, self.start, self.peak_data)
+        self._get_peak_fits()
+        plot_peak_intensity(self.sc_data, self.out_path, self.start, self.peak_data)
 
     def _check_xboundary_centering(self):
         x_boundary_adjustments(self.sc_data, self.peak_data)
@@ -206,16 +208,16 @@ class SEPEvent:
     def calc_Gaussian_fit(self):
         """Calculates the Gaussian fits at each time interval."""
         try:
-            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.path);
+            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.out_path);
         except Exception as e:
             print(f"Warning: Could not calculate Gaussian fit: {e}")
 
     def plot_gauss_results(self):
         try:
             if np.isnan(self.flare_loc[0]):
-                plot_gauss_fits(self.sc_data, self.path, self.start);
+                plot_gauss_fits(self.sc_data, self.out_path, self.start);
             else:
-                plot_gauss_fits(self.sc_data, self.path, self.start, flare_loc=self.flare_loc);
+                plot_gauss_fits(self.sc_data, self.out_path, self.start, flare_loc=self.flare_loc);
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
@@ -240,7 +242,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
     date_list = pd.date_range(starting_time, dates[1], freq=resampling)
 
     sm_df = {}
-    for t in tqdm(date_list):
+    for t in tqdm(date_list): # tqdm shows the progress bar when downloading
         sm10 = SolarMACH(t, observers, vsw_list=[],
                          reference_long=source_loc[0],
                          reference_lat=source_loc[1],
@@ -416,6 +418,7 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
 
         # Find channels and bin widths
         bin_list = proton_channels['PSP']
+
         if len(bin_list)==1:
             bin_label = f"{bin_list[0]}"
             bin_list.append(bin_list[0])
@@ -423,7 +426,7 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
         bin_width = []
         for n in range(bin_list[0], bin_list[1]+1):
-            binstr = str(psp_meta['H_ENERGY_LABL'][n][0]).strip().split('-')
+            binstr = str(psp_meta['H_ENERGY_LABL'][n]).strip().split('-')
             #print('The bin string is now: ', binstr)
 
             bin_start = float(binstr[0].strip())
@@ -728,7 +731,7 @@ def radial_scaling_calculation(df, scaling_values):
 ################################################
 ## Background Subtracting
 ################################################
-def background_subtracting(df, data_path, background_window):
+def background_subtracting(df, background_window):
     """Input: the sc dataframe, the path for saving files, the background window.
     Process: 1. Find the nanmean  and nanstd of the background window for both flux and unc.
             2. Subtract the full column by the [avg - std] (this way there's less chance to get half the values as nan).
@@ -760,7 +763,6 @@ def background_subtracting(df, data_path, background_window):
     df['Flux'] = adj_flux
     df['Uncertainty'] = adj_func
 
-    #df.to_csv(data_path+'backsubtest.csv', na_rep='nan')
 
     return df
 
@@ -811,7 +813,7 @@ def log_gauss_function_beta(beta_params, x):
     result = log_gauss_function(x, a, x0, sigma)
     return result
 
-def odr_gauss_fit(dict_1timestep, prev_results):
+def odr_gauss_fit(dict_1timestep, prev_results={'A': np.nan, 'X0': np.nan, 'sigma': np.nan}):
     """A more reliable and complex fitting function that requires the
     initial parameters to be within reason, so it calls the basic fitting function.
     Input: one timesteps worth of values, and the results of the previous timesteps fit."""
@@ -896,8 +898,9 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
         #print(y)
         timestep_dict = {'x':x, 'y':y, 'sc':sc_arr, 'xerr':xerr, 'yerr':yerr}
         #gauss_results = basic_gauss_fit(timestep_dict)
-        gauss_results = odr_gauss_fit(timestep_dict, prev_gauss)
-        #print(gauss_results)
+        gauss_results = odr_gauss_fit(timestep_dict, prev_results=prev_gauss)
+
+
         a_arr.append( gauss_results['A'] )
         x0_arr.append( gauss_results['X0'] )
         sigma_arr.append( gauss_results['sigma'] )
@@ -933,7 +936,12 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
     fits_df = pd.DataFrame(fits_dict)
     fits_df.set_index('Time', inplace=True)
 
-    fits_df.to_csv(data_path+'Gaussian_fit_results.csv')
+    fits_df1 = fits_df.dropna(axis='index', how='all', inplace=False)
+
+    fits_df1.to_csv(data_path+'Gaussian_fit_results.csv')
+
+
+
 
     # Combine all figures into a gif to display
     png_dir = data_path + 'Gauss_fits/'
@@ -1005,20 +1013,20 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     ax[n-1].xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(locator, show_offset=False))
 
     label=''
-    if False: #input('Save the file? ')=='y':
-        label = '_' + input('Save file key word: ')
-        plt.savefig(data_path+f'SEP_Intensities_{date.strftime("%d%m%y")}{label}.png')
+    if input('Save the file? ')=='y':
+        label = '' #'_' + input('Save file key word: ')
+        plt.savefig(data_path+f'SEP_Intensities{label}.png')
     plt.show()
 
     #plt.clf()
 
 
-def find_peak_intensity(sc_dict, data_path, date):
+def find_peak_intensity(sc_dict, data_path, date, window_length=10):
     """Reading in all the spacecraft datasets, this function finds the peak of each dataset
         and fits a Gaussian curve to the resulting set of peaks."""
 
     # Select a reasonable window for the peak to be in
-    peak_window_end = date + dt.timedelta(hours=10)
+    peak_window_end = date + dt.timedelta(hours=window_length)
 
 
     # Iterate through each spacecraft df and save the intensity and datetime of the peak
@@ -1040,11 +1048,10 @@ def find_peak_intensity(sc_dict, data_path, date):
                       'yerr': peak_yerr,
                       'x': peak_x,
                       'xerr': peak_xerr}
-    peak_fit_results = odr_gauss_fit(peak_data_dict, {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}) #JAX: can prolly provide better beta's'
-    print(peak_fit_results)
-    print(peak_data_dict)
+    peak_fit_results = odr_gauss_fit(peak_data_dict)
+    # The function finds an initial estimate for the parameters so we don't need to pass one
 
-    peak_data_results = peak_data_dict | peak_fit_results
+    peak_data_results = peak_data_dict | peak_fit_results #combine the results to the given values.
 
     return peak_data_results
 
@@ -1233,7 +1240,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
 
 
     plt.savefig(data_path+f'GaussCurve_TimeSeries_{timestep.strftime("%d%b%Y_%Hh%M")}.png')
-    plt.clf()
+    plt.close("all")
 
 
 
