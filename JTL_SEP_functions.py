@@ -25,6 +25,20 @@ from solo_epd_loader import epd_load
 
 from solarmach import SolarMACH
 
+import sunpy
+import warnings
+from tqdm.auto import tqdm
+
+import sunpy
+import warnings
+# warnings.simplefilter(action='once', category=pd.errors.PerformanceWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.filterwarnings(action='ignore', message='No units provided for variable', category=sunpy.util.SunpyUserWarning, module='sunpy.io._cdf')
+warnings.filterwarnings(action='ignore', message='astropy did not recognize units of', category=sunpy.util.SunpyUserWarning, module='sunpy.io._cdf')
+warnings.filterwarnings(action='ignore', message='The variable "HET_', category=sunpy.util.SunpyUserWarning, module='sunpy.io._cdf')
+# warnings.filterwarnings(action='ignore', message="Note that for the Dataframes containing the flow direction and SC coordinates timestamp position will not be adjusted by 'pos_timestamp'!", module='solo_epd_loader')
+# warnings.filterwarnings(action='once', message="Mean of empty slice", category=RuntimeWarning)
+
 marker_settings = {
     'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
     'SOHO': {'marker': 'o', 'color': 'darkgreen', 'label': 'SOHO-ERNE/HED'},
@@ -226,7 +240,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
     date_list = pd.date_range(starting_time, dates[1], freq=resampling)
 
     sm_df = {}
-    for t in date_list:
+    for t in tqdm(date_list):
         sm10 = SolarMACH(t, observers, vsw_list=[],
                          reference_long=source_loc[0],
                          reference_lat=source_loc[1],
