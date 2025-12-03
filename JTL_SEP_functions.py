@@ -69,14 +69,14 @@ SQR = r"$^2$"
 
 
 test_date = dt.datetime(2021,5,29,2,30)
-JAX_TESTERS = False
+JAX_TESTERS = True
 
 
 ################################################
 ## Event Class
 ################################################
 class SEPEvent:
-    def __init__(self, channels, dates, resampling, data_paths, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
+    def __init__(self, dates, filepaths, **kwargs):#(self, channels, dates, resampling, filepaths, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
         """channels: dict of the channels [start, end] to be used for each spacecraft (given as keys)
         dates: [start, end] dates (flare start time in the 'start')
         resampling: the interval to resample the data to
@@ -88,11 +88,20 @@ class SEPEvent:
         """
         self.start = dates[0]
         self.end = dates[1]
-        self.channels = channels
-        self.resampling = resampling
+        self.channels = []
+        self.resampling = ""
 
-        out_path = f"{data_paths[0]}SEPEvent_{dates[0].strftime("%d%b%Y")}/"
-        raw_path = data_paths[1]
+
+        if 'flare_loc' in kwargs.keys():
+            self.flare_loc = kwargs['flare_loc']
+            self.reference = kwargs['flare_loc'][0] # Using the longitude as the ref point
+        else:
+            self.flare_loc = [np.nan, np.nan]
+            self.reference = np.nan
+
+
+        out_path = f"{filepaths[0]}SEPEvent_{dates[0].strftime("%d%b%Y")}/"
+        raw_path = filepaths[1]
         try:
             os.makedirs(out_path)
             os.makedirs(raw_path)
@@ -100,55 +109,74 @@ class SEPEvent:
             pass
         self.out_path = out_path
         self.raw_path = raw_path
-        if 'coord_sys' in kwargs.keys():
-            coord_sys = kwargs['coord_sys']
-            if coord_sys.lower().startswith('car'):
-                coord_sys = 'Carrington'
-            elif coord_sys.lower().startswith('sto') or coord_sys.lower() == 'earth':
-                coord_sys = 'Stonyhurst'
-        else:
-            coord_sys = 'Stonyhurst'
-        self.coord_sys = coord_sys
 
-        if 'flare_loc' in kwargs.keys():
-            self.flare_loc = kwargs['flare_loc']
-        else:
-            self.flare_loc = [np.nan, np.nan]
+        # if 'coord_sys' in kwargs.keys():
+        #     coord_sys = kwargs['coord_sys']
+        #     if coord_sys.lower().startswith('car'):
+        #         coord_sys = 'Carrington'
+        #     elif coord_sys.lower().startswith('sto') or coord_sys.lower() == 'earth':
+        #         coord_sys = 'Stonyhurst'
+        # else:
+        #     coord_sys = 'Stonyhurst'
+        # self.coord_sys = coord_sys
+
 
         # List and load the data
-        self.spacecraft_list = list(channels.keys())
+        self.spacecraft_list = []
 
         ## Solarmach data
+        self.sm_data_short = {}
         self.sm_data = {}
-        self._load_solarmach_loop()
+        self._show_fleet()
+        # self._load_solarmach_loop()
 
         ## Observer data
         self.sc_data = {}
-        self._load_spacecraft_data()
+        # self.load_spacecraft_data()
 
         # Determine if the location limits (x axis in Gaussian plots) need to be adjusted.
         self.peak_data = {}
         #self._get_peak_fits()
         # self._check_xboundary_centering()
+    def _show_fleet(self):
+        """As the user defines the event, the solarmach information at the start time
+        of the event is plotted and shown."""
+        sm = SolarMACH(self.start, ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'], vsw_list=[400]*5, reference_long=self.flare_loc[0], reference_lat=self.flare_loc[1], coord_sys='Stonyhurst')
 
+        sm.plot()
+        self.sm_data_short = sm.coord_table.copy()
+        display(self.sm_data_short)
 
     def _load_solarmach_loop(self):
         """Download the solarmach data for the time period."""
-        try:
+        if np.isnan(self.reference):
+            self.reference = self._get_reference_point()
+        if True: #try:
             self.sm_data = solarmach_loop(self.spacecraft_list, [self.start, self.end],
-                                              self.out_path, self.resampling, self.flare_loc)
-        except Exception as e:
-            print(f"Warning: Could not load solarmach data: {e}")
+                                              self.out_path, self.resampling, self.reference)
+        # except Exception as e:
+        #     print(f"Warning: Could not load solarmach data: {e}")
 
-    def _load_spacecraft_data(self):
+        # Merge the sc data to the sm data
+        print(self.sc_data)
+        print(self.sm_data)
+        for sc in self.spacecraft_list:
+            self.sc_data[sc] = pd.concat([self.sc_data[sc], self.sm_data[sc]], axis=1, join='outer')
+        print('SolarMACH data loaded for full time range.')
+
+    def load_spacecraft_data(self, channels, resampling):
         """Download the data for each sc"""
+        self.channels = channels
+        self.resampling = resampling
+        self.spacecraft_list = list(channels.keys())
+
         for sc in self.spacecraft_list:
             if True: #try:
-                self.sc_data[sc] = load_sc_data(sc, self.sm_data, self.channels,
-                                                [self.start, self.end],
+                self.sc_data[sc] = load_sc_data(sc, self.channels, [self.start, self.end],
                                                 self.raw_path, self.resampling)
             else: #except Exception as e:
                 print(f"Warning: Could not load data for {sc}: {e}")
+        print("Data loading complete.")
 
     def get_sc_df(self, sc_name):
         """Return the df to the user"""
@@ -165,6 +193,7 @@ class SEPEvent:
                 self.sc_data[sc] = background_subtracting(self.sc_data.get(sc), background_window)
             except Exception as e:
                 print(f"Warning: Could not background subtract for {sc}: {e}")
+        print("Background subtraction function complete.")
 
     def intercalibrate(self, intercalibration_values):
         """Adjusts the data based on the given intercalibration values."""
@@ -173,14 +202,20 @@ class SEPEvent:
                 self.sc_data[sc] = intercalibration_calculation(self.sc_data.get(sc), intercalibration_values[sc])
             except Exception as e:
                 print(f"Warning: Could not intercalibrate for {sc}: {e}")
+        print("Intercalibration function complete.")
 
     def radial_scale(self, radial_scaling_factors):
         """Scales the data using the functions presented in FarwaEA2025."""
+
+        if len(self.sm_data) == 0:
+            self._load_solarmach_loop()
+
         for sc in self.spacecraft_list:
             try:
                 self.sc_data[sc] = radial_scaling_calculation(self.sc_data.get(sc), radial_scaling_factors)
             except Exception as e:
                 print(f"Warning: Could not radial scale for {sc}: {e}")
+        print("Radial Scaling function complete.")
 
     def plot_intensities(self, **kwargs):
         """Plots the time series for each given observer."""
@@ -192,21 +227,26 @@ class SEPEvent:
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
-    def _get_peak_fits(self):
+    def _get_peak_fits(self, window_length):
+        if len(self.sm_data) == 0:
+            self._load_solarmach_loop()
         """Calculates the Gaussian curve fitted to the peak intensities."""
-        self.peak_data = find_peak_intensity(self.sc_data, self.out_path, self.start)
+        self.peak_data = find_peak_intensity(self.sc_data, self.out_path, self.start, window_length)
 
-    def plot_peak_fits(self):
+    def plot_peak_fits(self, window_length=10):
         """Plots the Gaussian curve fitted to the peak intensities."""
-        self._get_peak_fits()
+        self._get_peak_fits(window_length=window_length)
         plot_peak_intensity(self.sc_data, self.out_path, self.start, self.peak_data)
 
-    def _check_xboundary_centering(self):
-        x_boundary_adjustments(self.sc_data, self.peak_data)
+    def _get_reference_point(self):
+
+        self.reference = find_reference_loc(self.sc_data, self.sm_data_short)
 
 
     def calc_Gaussian_fit(self):
         """Calculates the Gaussian fits at each time interval."""
+        if len(self.sm_data) == 0:
+            self._load_solarmach_loop()
         try:
             self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.out_path);
         except Exception as e:
@@ -228,7 +268,7 @@ class SEPEvent:
 
 
 ## Solar mach
-def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,None], coord_sys='Stonyhurst'):
+def solarmach_loop(observers, dates, data_path, resampling, source_loc=None, coord_sys='Stonyhurst'):
     """Downloads the fleet location data between the given dates with the
         given 'resampling' interval."""
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
@@ -244,8 +284,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
     sm_df = {}
     for t in tqdm(date_list): # tqdm shows the progress bar when downloading
         sm10 = SolarMACH(t, observers, vsw_list=[],
-                         reference_long=source_loc[0],
-                         reference_lat=source_loc[1],
+                         reference_long=source_loc,
                          coord_sys=coord_sys)
         sm_df[t] = sm10.coord_table
 
@@ -253,7 +292,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
     df1 = {}
     for obs in observers:
         
-        r_dist, vsw, foot_long, foot_long_error = ([] for i in range(4))
+        r_dist, vsw, foot_long, foot_long_error, long_sep = ([] for i in range(5))
         for tt in date_list:
             tmp_df = pd.DataFrame.from_dict(sm_df[tt])
             tmp_df.set_index('Spacecraft/Body', inplace=True)
@@ -275,10 +314,17 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
             #jax=input('How are the feet? ')
             foot_long_error.append( foot_calc[1] )
 
+            # Also store the separation between the source and obs footprint longitude
+            long_sep.append(tmp_df["Longitudinal separation between body's magnetic footpoint and reference_long"][obs])
+
+
+
+
         df1[obs] = {}
         df1[obs]['r_dist'] = r_dist
         df1[obs]['vsw'] = vsw
         df1[obs]['foot_long'] = foot_long
+        df1[obs]['long_sep'] = long_sep
         df1[obs]['foot_long_error'] = foot_long_error
 
         
@@ -288,9 +334,12 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=[None,Non
 
     df2.index = date_list
     df2.index.name = 'Time'
+    print(df2)
+    jax=input('Is there a df at this point? ')
 
 
     # Save to csv
+    print(data_path+filename)
     df2.to_csv(data_path+filename)
 
     return df2
@@ -393,11 +442,16 @@ def rms_mean(x_arr):
 
 ################################################
 
-def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resampling='15min'):
+def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
     """Load the data, merge the bins, make omnidirectional, resample, and return one df:
         -index: times
         - header1: sc-ins
         - [Flux, Uncertainty, Radial Distance, Longitude]"""
+
+    if len(resampling) == 0:
+        resampling = "15min"
+
+
 
     # Check if the file is already made and just load that one
     filename = f"SEP_intensities_{dates[0].strftime("%d%m%Y")}.csv"
@@ -411,10 +465,10 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
     if 'psp' == spacecraft:
         psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
                                           startdate=dates[0], enddate=dates[1],
-                                          path=data_path+'psp/', resample=None) # can do resample='1min' but its not clean.
-        if JAX_TESTERS:
-            psp_df = psp_df.resample('1min').mean() # Results in the index of "2021-05-28 00:20:00" a clean minute.
-            psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
+                                          path=data_path, resample=None) # can do resample='1min' but its not clean.
+        # if JAX_TESTERS:
+        #     psp_df = psp_df.resample('1min').mean() # Results in the index of "2021-05-28 00:20:00" a clean minute.
+        #     psp_df.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['PSP']
@@ -457,24 +511,24 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
 
 
         # Resample
-        psp = psp_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # psp = psp_df2.resample(resampling).mean()
-        psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
+        psp = psp_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
+        if JAX_TESTERS:
+            psp.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
+        # psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
         
 
-        # Add to the collection
-        #sc_dict['PSP'] = psp_sm
-        return psp_sm
+        return psp#_sm
 
 
 
     if 'soho' == spacecraft:
         soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
                                        startdate=dates[0], enddate=dates[1],
-                                       path=data_path+'soho/', resample=None,
+                                       path=data_path, resample=None,
                                        pos_timestamp='start')
-        if JAX_TESTERS:
-            soho_df = soho_df.resample('1min').mean()
-            soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
+        # if JAX_TESTERS:
+        #     soho_df = soho_df.resample('1min').mean()
+        #     soho_df.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
 
         # Find channels and bin widths
         bin_list = proton_channels['SOHO']
@@ -495,10 +549,6 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
         # Calculate the uncertainty
         for n in bin_list: # data provided as intensities (PH) or counts/min (PHC)
             soho_df[f"Uncert_{n}"] = ( (soho_df[f"PH_{n}"]) / (np.sqrt(soho_df[f"PHC_{n}"])) ) * 1.1 # adding 10% uncertainty for systematic errors (according to RV)
-        # print(soho_df.loc[test_date, f"PH_{n}"])
-        # print(soho_df.loc[test_date, f"PHC_{n}"])
-        # print(soho_df.loc[test_date, f"Uncert_{n}"])
-        # jax = input("Hows the soho uncertainty calc?")
 
 
         # Merge the channels
@@ -509,36 +559,26 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
         soho_df2 = pd.DataFrame.from_dict(soho_df1)
         soho_df2.set_index('Time', inplace=True)
 
-        # print(soho_df.loc[test_date, "PH_0"])
-        # print(bin_width)
-        # print(soho_df2.loc[test_date, "Flux"])
-        # jax = input("Hows the soho flux merge?")
-        # print(soho_df.loc[test_date, "Uncert_0"])
-        # print(soho_df2.loc[test_date, "Uncertainty"])
-        # jax = input("Hows the soho uncertainty merge?")
+
 
         # Resample
-        soho = soho_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # soho = soho_df2.resample(resampling).mean()
-        soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
+        soho = soho_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
+        if JAX_TESTERS:
+            soho.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
+        #soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
 
-        # print(soho_df2.head())
-        # print(soho.head())
-        # jax=input("Hows the resample?")
-
-        # Add to the collection
-        #sc_dict['SOHO'] = soho_sm
-        return soho_sm
+        return soho#_sm
 
     if 'stereo-a' == spacecraft:
-        stadf, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
+        sta_df, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
                                        startdate=dates[0], enddate=dates[1],
-                                       path=data_path+'stereo/', resample=None,
+                                       path=data_path, resample=None,
                                        pos_timestamp='start')
-        if JAX_TESTERS:
-            sta_df = stadf.resample('1min').mean()
-            sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
-        else:
-            sta_df = stadf
+        # if JAX_TESTERS:
+        #     sta_df = stadf.resample('1min').mean()
+        #     sta_df.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
+        # else:
+        #     sta_df = stadf
 
         # Find channels and bin widths
         bin_list = proton_channels['STEREO-A']
@@ -564,38 +604,27 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
         sta_df2 = pd.DataFrame.from_dict(sta_df1)
         sta_df2.set_index('Time', inplace=True)
 
-        # print(sta_df.loc[test_date, "Proton_Flux_0"])
-        # print(bin_width)
-        # print(sta_df2.loc[test_date, "Flux"])
-        # jax = input("Hows the sta flux merge?")
-        # print(sta_df.loc[test_date, "Proton_Sigma_0"])
-        # print(sta_df2.loc[test_date, "Uncertainty"])
-        # jax = input("Hows the sta uncertainty merge?")
 
         # Resample
-        sta = sta_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # sta = sta_df2.resample(resampling).mean()
-        sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
+        sta = sta_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
+        if JAX_TESTERS:
+            sta.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
+        #sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
 
-        # print(sta_df2.head())
-        # print(sta.head())
-        # jax=input("Hows the resample?")
-
-        # Add to the collection
-        #sc_dict['STEREO-A'] = sta_sm
-        return sta_sm
+        return sta#_sm
 
 
     if 'solar orbiter' == spacecraft:
-        solo_dfp, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
+        solo_df1, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
                                       startdate=dates[0], enddate=dates[1],
                                       viewing='omni', autodownload=True,
-                                      pos_timestamp='start', path=data_path+'solo/')
+                                      pos_timestamp='start', path=data_path)
 
-        if JAX_TESTERS:
-            solo_df1 = solo_dfp.resample('1min').mean()
-            solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
-        else:
-            solo_df1 = solo_dfp
+        # if JAX_TESTERS:
+        #     solo_df1 = solo_dfp.resample('1min').mean()
+        #     solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
+        # else:
+        #     solo_df1 = solo_dfp
 
         # Find channels and bin widths
         bin_list = proton_channels['Solar Orbiter']
@@ -616,32 +645,13 @@ def load_sc_data(spacecraft, sm_df, proton_channels, dates, data_path, resamplin
         solo_df3 = pd.DataFrame.from_dict(solo_df2)
         solo_df3.set_index('Time', inplace=True)
 
-        # print('Check channel merge')
-        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_10')])
-        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_11')])
-        # print(solo_df1.loc[test_date, ('H_Flux','H_Flux_12')])
-        # print(bin_width)
-        # print(solo_df3.loc[test_date, 'Flux'])
-        # jax=input('How is solos channel merge?')
-
-        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_10')])
-        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_11')])
-        # print(solo_df1.loc[test_date, ('H_Uncertainty','H_Uncertainty_12')])
-        # print(bin_width)
-        # print(solo_df3.loc[test_date, 'Uncertainty'])
-        # jax=input('How is solos unc channel merge?')
-
         # Resample
-        solo = solo_df3.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean}) # solo = solo_df3.resample(resampling).mean()
-        solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
+        solo = solo_df3.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
+        if JAX_TESTERS:
+            solo.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
+        #solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
 
-        # print(solo_df3.head())
-        # print(solo.head())
-        # jax=input('How is the solo resample?')
-
-        # Add to the collection
-        #sc_dict['Solar Orbiter'] = solo_sm
-        return solo_sm
+        return solo#_sm
 
 
     # Merge all the relevant columns into one df
@@ -770,26 +780,22 @@ def background_subtracting(df, background_window):
 
 
 ################################################
-## Adjust the longitudes to ensure correct centering
+## Find a reference to adjust the longitudes to ensure correct centering
 ################################################
-# def x_boundary_adjustments(sc_dict, peak_dict):
-#     """Using the peak values to determine what happens, we're adjusting the longitude values to make sure the number line loops around efficiently.
-#     e.g. Four locations (with the peak intensity in the center): 90, 150, -170, -120
-#             These imply the flare is ~180 degrees, we adjust this to be a 360 degree line.
-#             New locations: 90, 150, 190, 240 :: done by adding 360 to the negative values.
-#
-#     e.g. Four locations: -30, -10, 20, 60
-#             These are still appropriate to work with (using boundaries of -180:180)."""
-#
-#     # Get the position of the max(amplitude), this is where the flare source is likely to be closest to
-#     max_idx = np.nanargmax(peak_dict['y'])
-#
-#     longitude_gt_90 = 0 # counts the number of sc with a long > 90
-#     for n, flong in enumerate(peak_dict['x']):
-#         if abs(flong) > 90:
-#             longitude_gt_90 += 1
-#
-#     # Check if
+def find_reference_loc(sc_data, sm_data_short):
+    """Using the peak values to roughly determine the best connected sc and """
+    peak_int = 0
+    for sc, sc_df in sc_data:
+        if peak_int < np.nanmax(sc_df['Flux']):
+            peak_int = np.nanmax(sc_df['Flux'])
+            peak_sc = sc
+    # prelim_peak_info = {'sc': peak_sc,
+    #                     'int': peak_int,
+    #                     'loc': sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']}
+
+    return sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']
+
+
 
 
 
@@ -1013,9 +1019,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     ax[n-1].xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(locator, show_offset=False))
 
     label=''
-    if input('Save the file? ')=='y':
-        label = '' #'_' + input('Save file key word: ')
-        plt.savefig(data_path+f'SEP_Intensities{label}.png')
+    plt.savefig(data_path+f'SEP_Intensities.png')
     plt.show()
 
     #plt.clf()
