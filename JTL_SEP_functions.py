@@ -3,7 +3,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, OptimizeWarning
 from scipy import odr
 
 import matplotlib as mpl
@@ -38,6 +38,8 @@ warnings.filterwarnings(action='ignore', message='astropy did not recognize unit
 warnings.filterwarnings(action='ignore', message='The variable "HET_', category=sunpy.util.SunpyUserWarning, module='sunpy.io._cdf')
 # warnings.filterwarnings(action='ignore', message="Note that for the Dataframes containing the flow direction and SC coordinates timestamp position will not be adjusted by 'pos_timestamp'!", module='solo_epd_loader')
 # warnings.filterwarnings(action='once', message="Mean of empty slice", category=RuntimeWarning)
+
+warnings.filterwarnings(action='ignore', category=OptimizeWarning, message='Covariance of the parameters could not be estimated')
 
 marker_settings = {
     'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
@@ -141,7 +143,7 @@ class SEPEvent:
     def _show_fleet(self):
         """As the user defines the event, the solarmach information at the start time
         of the event is plotted and shown."""
-        sm = SolarMACH(self.start, ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'], vsw_list=[400]*5, reference_long=self.flare_loc[0], reference_lat=self.flare_loc[1], coord_sys='Stonyhurst')
+        sm = SolarMACH(self.start, ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'], vsw_list=[400]*5, reference_long=self.flare_loc[0], reference_lat=self.flare_loc[1], coord_sys='Stonyhurst', silent=True)
 
         sm.plot()
         self.sm_data_short = sm.coord_table.copy()
@@ -170,7 +172,7 @@ class SEPEvent:
         self.resampling = resampling
         self.spacecraft_list = list(channels.keys())
 
-        for sc in self.spacecraft_list:
+        for sc in tqdm(self.spacecraft_list):
             if True: #try:
                 self.sc_data[sc] = load_sc_data(sc, self.channels, [self.start, self.end],
                                                 self.raw_path, self.resampling)
@@ -285,7 +287,7 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=None, coo
     for t in tqdm(date_list): # tqdm shows the progress bar when downloading
         sm10 = SolarMACH(t, observers, vsw_list=[],
                          reference_long=source_loc,
-                         coord_sys=coord_sys)
+                         coord_sys=coord_sys, silent=True)
         sm_df[t] = sm10.coord_table
 
     # Create a new dict with each spacecraft df saved separately
