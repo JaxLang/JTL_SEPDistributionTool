@@ -87,6 +87,8 @@ class SEPEvent:
         radial_scaling: list of radial scaling values (a +- b) (see Farwa+2025 for more details)
         coord_sys: (default: Stonyhurst) either stonyhurst or carrington for plotting and calculations.
         flare_loc: for adding a reference to plots
+
+        As each stage of the data set up is handled, it moves to a new df so that the user can undo or redo a certain step without having to start from the beginning.
         """
         self.start = dates[0]
         self.end = dates[1]
@@ -130,26 +132,28 @@ class SEPEvent:
         self.sm_data_short = {}
         self.sm_data = {}
         self._show_fleet()
-        # self._load_solarmach_loop()
 
-        ## Observer data
+        ## Observer data - updated for each processing step
         self.sc_data = {}
-        # self.load_spacecraft_data()
+        self.sc_data_background = {}
+        self.sc_data_ic = {}
+        self.sc_data_rs = {}
 
         # Determine if the location limits (x axis in Gaussian plots) need to be adjusted.
         self.peak_data = {}
-        #self._get_peak_fits()
-        # self._check_xboundary_centering()
-    def _show_fleet(self):
+
+
+    def _show_fleet(self): # Step 1
         """As the user defines the event, the solarmach information at the start time
         of the event is plotted and shown."""
         sm = SolarMACH(self.start, ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'], vsw_list=[400]*5, reference_long=self.flare_loc[0], reference_lat=self.flare_loc[1], coord_sys='Stonyhurst', silent=True)
 
-        sm.plot()
+        sm.plot(outfile=self.out_path+"SolarMACH.png")
+
         self.sm_data_short = sm.coord_table.copy()
         display(self.sm_data_short)
 
-    def _load_solarmach_loop(self):
+    def _load_solarmach_loop(self): # Step 5.1 or 6.2 or 7.1
         """Download the solarmach data for the time period."""
         if np.isnan(self.reference):
             self.reference = self._get_reference_point()
@@ -160,19 +164,19 @@ class SEPEvent:
         #     print(f"Warning: Could not load solarmach data: {e}")
 
         # Merge the sc data to the sm data
-        print(self.sc_data)
-        print(self.sm_data)
+        # print(self.sc_data)
+        # print(self.sm_data)
         for sc in self.spacecraft_list:
             self.sc_data[sc] = pd.concat([self.sc_data[sc], self.sm_data[sc]], axis=1, join='outer')
         print('SolarMACH data loaded for full time range.')
 
-    def load_spacecraft_data(self, channels, resampling):
+    def load_spacecraft_data(self, channels, resampling): # Step 2
         """Download the data for each sc"""
         self.channels = channels
         self.resampling = resampling
         self.spacecraft_list = list(channels.keys())
 
-        for sc in tqdm(self.spacecraft_list):
+        for sc in (self.spacecraft_list):
             if True: #try:
                 self.sc_data[sc] = load_sc_data(sc, self.channels, [self.start, self.end],
                                                 self.raw_path, self.resampling)
@@ -180,33 +184,60 @@ class SEPEvent:
                 print(f"Warning: Could not load data for {sc}: {e}")
         print("Data loading complete.")
 
+
+    # Return data for the user
+    def get_spacecraft_list(self):
+        """Return the list of spacecraft from the dictionary."""
+        return self.spacecraft_list
+
     def get_sc_df(self, sc_name):
         """Return the df to the user"""
-        return self.sc_data.get(sc_name)
+        if len(self.sc_data_rs) != 0:
+            print("from rad scale")
+            return self.sc_data_rs.get(sc_name)
 
-    def get_peak_df(self):
+        elif len(self.sc_data_ic) != 0:
+            print("from ic")
+            return self.sc_data_ic.get(sc_name)
+
+        elif len(self.sc_data_background) != 0:
+            print("from bakc sub")
+            return self.sc_data.get(sc_name)
+
+        elif len(self.sc_data) != 0:
+            print("from loaders")
+            return self.sc_data.get(sc_name)
+
+        else:
+            print("Please run '*.load_spacecraft_data()' first.")
+            return None
+
+    def get_peak_data(self):
         return self.peak_data
 
-    def background_subtract(self, background_window):
+    # Data Processing
+    def background_subtract(self, background_window): # Step 3
         """Given a window by the user, the function calculates the average, reduces the
         intensity by this average, and results in a background reduced dataset."""
         for sc in self.spacecraft_list:
             try:
-                self.sc_data[sc] = background_subtracting(self.sc_data.get(sc), background_window)
+                self.sc_data_background[sc] = background_subtracting(self.sc_data.get(sc), background_window)
             except Exception as e:
                 print(f"Warning: Could not background subtract for {sc}: {e}")
         print("Background subtraction function complete.")
 
-    def intercalibrate(self, intercalibration_values):
+    def intercalibrate(self, intercalibration_values): # Step 4
         """Adjusts the data based on the given intercalibration values."""
         for sc in self.spacecraft_list:
             try:
-                self.sc_data[sc] = intercalibration_calculation(self.sc_data.get(sc), intercalibration_values[sc])
+                print(sc)
+                print(intercalibration_values[sc])
+                self.sc_data_ic[sc] = intercalibration_calculation(self.sc_data_background.get(sc), intercalibration_values[sc])
             except Exception as e:
                 print(f"Warning: Could not intercalibrate for {sc}: {e}")
         print("Intercalibration function complete.")
 
-    def radial_scale(self, radial_scaling_factors):
+    def radial_scale(self, radial_scaling_factors): # Step 5
         """Scales the data using the functions presented in FarwaEA2025."""
 
         if len(self.sm_data) == 0:
@@ -214,7 +245,7 @@ class SEPEvent:
 
         for sc in self.spacecraft_list:
             try:
-                self.sc_data[sc] = radial_scaling_calculation(self.sc_data.get(sc), radial_scaling_factors)
+                self.sc_data_rs[sc] = radial_scaling_calculation(self.sc_data_ic.get(sc), radial_scaling_factors)
             except Exception as e:
                 print(f"Warning: Could not radial scale for {sc}: {e}")
         print("Radial Scaling function complete.")
@@ -224,18 +255,37 @@ class SEPEvent:
         bg_zone = []
         if 'background_window' in kwargs:
             bg_zone = kwargs['background_window']
-        try:
-            plot_timeseries_result(self.sc_data, self.out_path, self.start, bg_zone);
-        except Exception as e:
-            print(f"Warning: Could not plot figure: {e}")
 
-    def _get_peak_fits(self, window_length):
+        scdata = {}
+        if len(self.sc_data_rs) != 0:
+            print('Using rs data')
+            scdata = self.sc_data_rs
+        elif len(self.sc_data_ic) != 0:
+            print('Using ic data')
+            scdata = self.sc_data_ic
+        elif len(self.sc_data_background) != 0:
+            print('Using bg data')
+            scdata = self.sc_data_background
+        elif len(self.sc_data) != 0:
+            print('Using OG data')
+            scdata = self.sc_data
+
+        if len(scdata) != 0:
+            try:
+                plot_timeseries_result(scdata, self.out_path, self.start, bg_zone);
+            except Exception as e:
+                print(f"Warning: Could not plot figure: {e}")
+        else:
+            print("Please run '*.load_spacecraft_data()' first.")
+
+    # Gaussian Fitting
+    def _get_peak_fits(self, window_length=10): # Step 6.1 or 7.2
         if len(self.sm_data) == 0:
             self._load_solarmach_loop()
         """Calculates the Gaussian curve fitted to the peak intensities."""
         self.peak_data = find_peak_intensity(self.sc_data, self.out_path, self.start, window_length)
 
-    def plot_peak_fits(self, window_length=10):
+    def plot_peak_fits(self, window_length=10): # Step 6
         """Plots the Gaussian curve fitted to the peak intensities."""
         self._get_peak_fits(window_length=window_length)
         plot_peak_intensity(self.sc_data, self.out_path, self.start, self.peak_data)
@@ -244,22 +294,24 @@ class SEPEvent:
 
         self.reference = find_reference_loc(self.sc_data, self.sm_data_short)
 
-
-    def calc_Gaussian_fit(self):
+    def calc_Gaussian_fit(self): # Step 7
         """Calculates the Gaussian fits at each time interval."""
         if len(self.sm_data) == 0:
             self._load_solarmach_loop()
+        if len(self.peak_data) == 0:
+            self._get_peak_fits()
         try:
-            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.out_path);
+            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.out_path, self.reference, self.flare_loc, self.peak_data);
         except Exception as e:
             print(f"Warning: Could not calculate Gaussian fit: {e}")
 
-    def plot_gauss_results(self):
+    # Final Results
+    def plot_gauss_results(self): # Step 8
         try:
             if np.isnan(self.flare_loc[0]):
-                plot_gauss_fits(self.sc_data, self.out_path, self.start);
+                plot_gauss_fits_timeseries(self.sc_data, self.out_path, self.start, self.reference);
             else:
-                plot_gauss_fits(self.sc_data, self.out_path, self.start, flare_loc=self.flare_loc);
+                plot_gauss_fits_timeseries(self.sc_data, self.out_path, self.start, self.reference, flare_loc=self.flare_loc);
         except Exception as e:
             print(f"Warning: Could not plot figure: {e}")
 
@@ -336,12 +388,12 @@ def solarmach_loop(observers, dates, data_path, resampling, source_loc=None, coo
 
     df2.index = date_list
     df2.index.name = 'Time'
-    print(df2)
-    jax=input('Is there a df at this point? ')
+    # print(df2)
+    # jax=input('Is there a df at this point? ')
 
 
     # Save to csv
-    print(data_path+filename)
+    # print(data_path+filename)
     df2.to_csv(data_path+filename)
 
     return df2
@@ -623,6 +675,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
                                       pos_timestamp='start', path=data_path)
 
         # if JAX_TESTERS:
+        #     print(solo_df1)
         #     solo_df1 = solo_dfp.resample('1min').mean()
         #     solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
         # else:
@@ -669,8 +722,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 ################################################
 ## Inter-calibration
 ################################################
-def intercalibration_calculation(df, factor):
+def intercalibration_calculation(df0, factor):
     """Apply the scaling to the Flux and Uncertainty columns"""
+    df = df0.copy(deep=True)
+
     for col in ['Flux','Uncertainty']: # Both are calculated the same
         #print(df[(obs,col)])
         #jax=input('huh?')
@@ -683,10 +738,10 @@ def intercalibration_calculation(df, factor):
 ################################################
 ## Radial Scaling
 ################################################
-def radial_scaling_calculation(df, scaling_values):
+def radial_scaling_calculation(df0, scaling_values):
     """Scales the data based on its radial distance according to:
         I_new = I * R ^(a +- b)."""
-    #df = df0.copy(deep=True) # so it doesnt mess with the OG df's
+    df = df0.copy(deep=True) # so it doesnt mess with the OG df's
     
     a = scaling_values[0]
     b = scaling_values[1]
@@ -743,12 +798,14 @@ def radial_scaling_calculation(df, scaling_values):
 ################################################
 ## Background Subtracting
 ################################################
-def background_subtracting(df, background_window):
+def background_subtracting(df0, background_window):
     """Input: the sc dataframe, the path for saving files, the background window.
     Process: 1. Find the nanmean  and nanstd of the background window for both flux and unc.
             2. Subtract the full column by the [avg - std] (this way there's less chance to get half the values as nan).
                 - The unc is calculated as: unc_adj = sqrt(unc**2 + [avg-std]**2)
             3. Return the updated df."""
+
+    df = df0.copy(deep=True)
 
     # A list of just the values within the background window
     bg_flux = df['Flux'][background_window[0]:background_window[1]]
@@ -821,7 +878,7 @@ def log_gauss_function_beta(beta_params, x):
     result = log_gauss_function(x, a, x0, sigma)
     return result
 
-def odr_gauss_fit(dict_1timestep, prev_results={'A': np.nan, 'X0': np.nan, 'sigma': np.nan}):
+def odr_gauss_fit(dict_1timestep, prev_results={'A': np.nan, 'X0': np.nan, 'sigma': np.nan}, peak_results={'A': np.nan, 'X0': np.nan, 'sigma': np.nan}):
     """A more reliable and complex fitting function that requires the
     initial parameters to be within reason, so it calls the basic fitting function.
     Input: one timesteps worth of values, and the results of the previous timesteps fit."""
@@ -838,7 +895,11 @@ def odr_gauss_fit(dict_1timestep, prev_results={'A': np.nan, 'X0': np.nan, 'sigm
         return {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
 
     # Check for previous timestep results (if none then calculate)
-    if np.isnan(prev_results['A']): # Nothing stored
+    if np.isnan(prev_results['A']) and not np.isnan(peak_results['A']):
+        prev_results = peak_results
+        # print('Used peak results')
+        # print(dict_1timestep)
+    else: #if np.isnan(prev_results['A']): # Nothing stored
         try:
             popt, pcov = curve_fit(log_gauss_function, df['x'], df['y'],
                                   p0=[max(df['y']), df['x'][ df['y'].idxmax() ], 20]) # max amplitude, position of the max amplitude, width
@@ -873,7 +934,7 @@ def odr_gauss_fit(dict_1timestep, prev_results={'A': np.nan, 'X0': np.nan, 'sigm
             'A err': float(out.sd_beta[0]), 'X0 err': float(out.sd_beta[1]), 'sigma err': float(out.sd_beta[2]),
             'res': float(out.res_var)}
 
-def fit_gauss_curves_to_data(sc_dict, data_path):
+def fit_gauss_curves_to_data(sc_dict, data_path, reference, flare_loc, peak_data):
     """Read in the full df, calculate the curve at each timestep, save the results to new columns."""
     # Create a folder to save the gaussian timestep figures in
     try:
@@ -884,29 +945,31 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
     a_arr, a_errarr, x0_arr, x0_errarr, sigma_arr, sigma_errarr, res_arr, time_arr, sc_arr = ([] for i in range(9))
 
     # Set up a dict for the previous Gaussian results to be stored and compared.
-    prev_gauss = {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
+    #prev_gauss = {'A': np.nan, 'X0': np.nan, 'sigma': np.nan}
+    prev_gauss = {'A': peak_data['A'], 'X0': peak_data['X0'], 'sigma': peak_data['sigma']}
 
     obs = list(sc_dict.keys())
 
     for i in sc_dict[obs[0]].index: # iterate through each timestep
         #if i.day != 29: #if np.isnan(sc_dict[obs[0]]['r_dist']): # Doesn't try calculate when solarmach data is not available
         #    continue
-        x, xerr, y, yerr, sc_arr = ([] for i in range(5))
+        x, xerr, y, yerr, sc_arr, x_real = ([] for i in range(6))
         #print(i)
 
         for sc, df in sc_dict.items():
             sc_arr.append(sc)
             y.append(float(np.log10(df.loc[i, 'Flux'])))
             yerr.append(float(np.log10(df.loc[i, 'Uncertainty'])))
-            x.append(float(df.loc[i, 'foot_long']))
+            x.append(float(df.loc[i, 'long_sep'])) #x.append(float(df.loc[i, 'foot_long']))
             xerr.append(float(df.loc[i, 'foot_long_error']))
+            x_real.append(float(df.loc[i, 'foot_long']))
 
         # Calculate the fit now
         #print(x)
         #print(y)
-        timestep_dict = {'x':x, 'y':y, 'sc':sc_arr, 'xerr':xerr, 'yerr':yerr}
+        timestep_dict = {'x':x, 'y':y, 'sc':sc_arr, 'xerr':xerr, 'yerr':yerr, 'xreal': x_real}
         #gauss_results = basic_gauss_fit(timestep_dict)
-        gauss_results = odr_gauss_fit(timestep_dict, prev_results=prev_gauss)
+        gauss_results = odr_gauss_fit(timestep_dict, prev_results=prev_gauss, peak_results=peak_data)
 
 
         a_arr.append( gauss_results['A'] )
@@ -927,7 +990,7 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
 
         # Plot the fit for this timestep
         if not np.isnan(x).any() and not np.isnan(gauss_results['X0']):
-            plot_curve_and_timeseries(gauss_results, timestep_dict, sc_dict, data_path+'Gauss_fits/', i)
+            plot_curve_and_timeseries(gauss_results, timestep_dict, sc_dict, data_path+'Gauss_fits/', i, reference, flare_loc)
 
         prev_gauss = gauss_results
 
@@ -964,7 +1027,7 @@ def fit_gauss_curves_to_data(sc_dict, data_path):
     gif = Image(filename=png_dir+"Gauss_fits.gif")
     display(gif)
 
-    return fits_df
+    return fits_df1
 
 
 
@@ -1169,13 +1232,15 @@ def log_gauss_error_range_calc(x_arr, y_arr, peak_fit):
 
 
 
-def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep):
+def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep, reference, flare_loc):
     """Plotting two subplots, left the fitted gaussian curve, right the time series."""
 
 
     ylimits = [1e5, 1e-5]
     xlimits= [0, 0]
-    for sc in ['SOHO','PSP','STEREO-A','Solar Orbiter']:
+    for sc, sdf in full_df.items():
+        if sc == 'Gauss':
+            continue
         ylimits[0] = np.nanmin([np.nanmin(full_df[sc]['Flux']), ylimits[0]])
         ylimits[1] = np.nanmax([np.nanmax(full_df[sc]['Flux']), ylimits[1]])
 
@@ -1203,19 +1268,23 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
     # Add a vertical line in the time series to see where the timestamp is
     tseries_ax.axvline(x=timestep, color='k', linewidth=1.2, alpha=0.8)
 
+    # Add a vertical line in the gaussian curve to indicate the flares initial position (if provided)
+    if flare_loc:
+        gauss_ax.axvline(x=flare_loc[0], color='k', linestyle='dashed', linewidth=0.5, alpha=0.9, label=f'Flare at {flare_loc[0]}{DEGREE_TEXT}')
+
     # Calculate and plot the curve
     x_curve = np.linspace(-360,360,200)
-    y_curve = 10 ** log_gauss_function(x_curve, gauss_values['A'], gauss_values['X0'], gauss_values['sigma'])
+    y_curve = 10 ** log_gauss_function(x_curve, gauss_values['A'], gauss_values['X0']+reference, gauss_values['sigma'])
     gauss_ax.semilogy(x_curve, y_curve)
 
     # Show the different elements of the curve (ie the center and width)
-    gauss_ax.axvline(x=gauss_values['X0'], color='goldenrod', alpha=0.8)
+    gauss_ax.axvline(x=gauss_values['X0']+reference, color='goldenrod', alpha=0.8)
     gauss_ax.hlines(y=0.6065*(10**gauss_values['A']),
-                    xmin=(gauss_values['X0']-gauss_values['sigma']),
-                    xmax=(gauss_values['X0']+gauss_values['sigma']),
+                    xmin=(gauss_values['X0']+reference-gauss_values['sigma']),
+                    xmax=(gauss_values['X0']+reference+gauss_values['sigma']),
                     color='turquoise', alpha=0.8, linewidth=1.2)
 
-    gauss_text = f"Center: {gauss_values['X0']:.2f}{DEGREE_TEXT}\n"
+    gauss_text = f"Center: {gauss_values['X0']+reference:.2f}{DEGREE_TEXT}\n"
     gauss_text = f"{gauss_text}Width: {gauss_values['sigma']:.2f}{DEGREE_TEXT}"
     box_obj = AnchoredText(gauss_text, frameon=True, loc='upper left', pad=0.5, prop={'size':9})
     plt.setp(box_obj.patch, facecolor='grey', alpha=0.9)
@@ -1223,8 +1292,13 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
 
 
     for n in range(len(sc_df['sc'])):
+        # print("reference: ", reference)
+        # print("foot sep: ", sc_df['x'][n])
+        # print("foot long: ", sc_df['xreal'][n])
+        # print("Foot sep + ref: ", sc_df['x'][n]+reference)
+        # jax=input()
         markers = marker_settings[sc_df['sc'][n]]
-        gauss_ax.semilogy(sc_df['x'][n], 10**(sc_df['y'][n]), label=sc_df['sc'][n],
+        gauss_ax.semilogy(sc_df['xreal'][n], 10**(sc_df['y'][n]), label=sc_df['sc'][n],
                           marker=markers['marker'], color=markers['color'])
 
         # Plot the timeseries data
@@ -1232,7 +1306,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
                             color=markers['color'], label=sc_df['sc'][n])
     gauss_ax.legend(bbox_to_anchor=(0.2, 1.03, 1.0, 0.1), loc='upper left', ncols=6, fontsize=6)
 
-    gauss_ax.set_xlim(xlimits[0]-10, xlimits[1]+10)
+    gauss_ax.set_xlim(xlimits[0]-20, xlimits[1]+20)
     tseries_ax.set_ylim(ylimits[0]*0.5, ylimits[1]*2)
     if ylimits[0] < 0:
         print(ylimits)
@@ -1252,7 +1326,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep)
 
 
 
-def plot_gauss_fits(sc_dict, data_path, date, **kwargs):
+def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, **kwargs):
     """Plots the following time series: intensity, gauss center, and gauss sigma."""
 
     fig, ax = plt.subplots(3, 1, figsize=[6,6], dpi=300, sharex=True)
@@ -1266,7 +1340,7 @@ def plot_gauss_fits(sc_dict, data_path, date, **kwargs):
 
     # Define the limits to be adjusted along the way
     ylimits = {'intensity': [1e0, 1e-5],
-               'center': [np.nanmin(sc_dict['Gauss']['X0']), np.nanmax(sc_dict['Gauss']['X0'])],
+               'center': [np.nanmin(sc_dict['Gauss']['X0'])+ref, np.nanmax(sc_dict['Gauss']['X0'])+ref],
                'sigma': [np.nanmin(sc_dict['Gauss']['sigma']), np.nanmax(sc_dict['Gauss']['sigma'])]}
 
     # Plot the intensities
@@ -1291,13 +1365,13 @@ def plot_gauss_fits(sc_dict, data_path, date, **kwargs):
     if 'flare_loc' in kwargs.keys():
         flare = kwargs['flare_loc']
         ax[1].axhline(y=flare[0],
-                      linestyle='solid', color='k', alpha=0.5,
+                      linestyle='dashed', color='k', alpha=0.9, linewidth=0.5,
                       label=f"Flare at [{flare[0]}, {flare[1]}]{DEGREE_TEXT}")
         ax[1].legend()
 
     # Plot the Gaussian results
     for i, row in sc_dict['Gauss'].iterrows():
-        ax[1].errorbar(i, row['X0'], yerr=row['X0 err'],
+        ax[1].errorbar(i, row['X0']+ref, yerr=row['X0 err'],
                       color='k', ecolor='grey', marker='o', markersize=3)
 
         ax[2].errorbar(i, row['sigma'], yerr=row['sigma err'],
