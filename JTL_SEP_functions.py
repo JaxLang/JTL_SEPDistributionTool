@@ -45,10 +45,10 @@ marker_settings = {
     'Solar Orbiter': {'marker': 's', 'color': 'dodgerblue', 'label': 'Solar Orbiter-EPD/HET'},
     'SOHO': {'marker': 'o', 'color': 'darkgreen', 'label': 'SOHO-ERNE/HED'},
     'STEREO-A': {'marker': '^', 'color': 'red', 'label': 'STEREO-A/HET'},
-    'PSP':  {'marker': 'p', 'color': 'purple', 'label': 'Parker Solar Probe/HET'},
-    'Wind': {'marker': '*', 'color': 'slategray', 'label': 'Wind'},
-    'STEREO-B': {'marker': 'v', 'color': 'blue', 'label': 'STEREO-B'},
-    'BepiColombo': {'marker': 'd', 'color': 'orange', 'label': 'BepiColombo'}
+    'PSP':  {'marker': 'p', 'color': 'purple', 'label': 'PSP/HET'},
+    # 'Wind': {'marker': '*', 'color': 'slategray', 'label': 'Wind'},
+    # 'STEREO-B': {'marker': 'v', 'color': 'blue', 'label': 'STEREO-B'},
+    # 'BepiColombo': {'marker': 'd', 'color': 'orange', 'label': 'BepiColombo'}
     }
 
 
@@ -57,17 +57,14 @@ mpl.rcParams.update({'font.size': 10,
                      'axes.titlesize': 10, 'axes.labelsize': 10,
                      'figure.labelsize': 10,
                      'lines.markersize': 8, 'lines.linewidth': 1.4,
-                     'legend.fontsize': 6, 'legend.title_fontsize': 7,
+                     'legend.fontsize': 5, 'legend.title_fontsize': 7,
                      'savefig.transparent': False, 'savefig.bbox': 'tight',
                      'axes.grid': False, 'ytick.minor.visible': False})
 
-LEGND_LOC = (1.02, 1.02)
+
 DEGREE_TEXT = r'$^{\circ}$'
 SIGMA_TEXT = r'$\sigma$'
-LAMBDAPERP_TEXT = r'$\lambda_{\perp}$'
-LAMBDAPLL_TEXT = r'$\lambda_{\parallel}$'
 PM_SYMB = r"$\pm$"
-SQR = r"$^2$"
 
 
 test_date = dt.datetime(2021,5,29,2,30)
@@ -77,7 +74,7 @@ JAX_TESTERS = True
 ################################################
 ## Event Class
 ################################################
-class SEPEvent:
+class SpatialEvent:
     def __init__(self, dates, filepaths, **kwargs):#(self, channels, dates, resampling, filepaths, **kwargs): #coord_sys='Stonyhurst', flare_loc=None):
         """channels: dict of the channels [start, end] to be used for each spacecraft (given as keys)
         dates: [start, end] dates (flare start time in the 'start')
@@ -92,7 +89,8 @@ class SEPEvent:
         """
         self.start = dates[0]
         self.end = dates[1]
-        self.channels = []
+        self.channels = {}
+        self.channel_labels = {}
         self.resampling = ""
 
 
@@ -135,7 +133,7 @@ class SEPEvent:
 
         ## Observer data - updated for each processing step
         self.sc_data = {}
-        self.sc_data_background = {}
+        self.sc_data_bg = {}
         self.sc_data_ic = {}
         self.sc_data_rs = {}
 
@@ -164,11 +162,27 @@ class SEPEvent:
         #     print(f"Warning: Could not load solarmach data: {e}")
 
         # Merge the sc data to the sm data
-        # print(self.sc_data)
-        # print(self.sm_data)
-        for sc in self.spacecraft_list:
-            self.sc_data[sc] = pd.concat([self.sc_data[sc], self.sm_data[sc]], axis=1, join='outer')
-        print('SolarMACH data loaded for full time range.')
+        if len(self.sc_data_ic) != 0:
+            print("loading solarmach loop with ic data")
+            for sc in self.spacecraft_list:
+                # Assuming this is done after the intercalibration
+                self.sc_data_ic[sc] = pd.concat([self.sc_data_ic[sc], self.sm_data[sc]], axis=1, join='outer')
+            print('SolarMACH data loaded for full time range.')
+        elif len(self.sc_data_bg) != 0:
+            print("loading solarmach loop with bg data")
+            for sc in self.spacecraft_list:
+                # Assuming this is done after the intercalibration
+                self.sc_data_bg[sc] = pd.concat([self.sc_data_bg[sc], self.sm_data[sc]], axis=1, join='outer')
+            print('SolarMACH data loaded for full time range.')
+        elif len(self.sc_data) != 0:
+            print("loading solarmach loop with OG data")
+            for sc in self.spacecraft_list:
+                # Assuming this is done after the intercalibration
+                self.sc_data[sc] = pd.concat([self.sc_data[sc], self.sm_data[sc]], axis=1, join='outer')
+            print('SolarMACH data loaded for full time range.')
+        else:
+            print("Please run '*.load_spacecraft_data()' first.")
+
 
     def load_spacecraft_data(self, channels, resampling): # Step 2
         """Download the data for each sc"""
@@ -178,8 +192,7 @@ class SEPEvent:
 
         for sc in (self.spacecraft_list):
             if True: #try:
-                self.sc_data[sc] = load_sc_data(sc, self.channels, [self.start, self.end],
-                                                self.raw_path, self.resampling)
+                self.sc_data[sc], self.channel_labels[sc] = load_sc_data(sc, self.channels, [self.start, self.end], self.raw_path, self.resampling)
             else: #except Exception as e:
                 print(f"Warning: Could not load data for {sc}: {e}")
         print("Data loading complete.")
@@ -200,9 +213,9 @@ class SEPEvent:
             print("from ic")
             return self.sc_data_ic.get(sc_name)
 
-        elif len(self.sc_data_background) != 0:
-            print("from bakc sub")
-            return self.sc_data.get(sc_name)
+        elif len(self.sc_data_bg) != 0:
+            print("from back sub")
+            return self.sc_data_bg.get(sc_name)
 
         elif len(self.sc_data) != 0:
             print("from loaders")
@@ -216,39 +229,60 @@ class SEPEvent:
         return self.peak_data
 
     # Data Processing
-    def background_subtract(self, background_window): # Step 3
+    def background_subtract(self, background_window, perform_process=True): # Step 3
         """Given a window by the user, the function calculates the average, reduces the
         intensity by this average, and results in a background reduced dataset."""
-        for sc in self.spacecraft_list:
-            try:
-                self.sc_data_background[sc] = background_subtracting(self.sc_data.get(sc), background_window)
-            except Exception as e:
-                print(f"Warning: Could not background subtract for {sc}: {e}")
-        print("Background subtraction function complete.")
+        if perform_process:
+            for sc in self.spacecraft_list:
+                if True: #try:
+                    self.sc_data_bg[sc] = background_subtracting(self.sc_data.get(sc), background_window)
+                # except Exception as e:
+                #     print(f"Warning: Could not background subtract for {sc}: {e}")
+            print("Background subtraction function complete.")
+        else:
+            for sc in self.spacecraft_list:
+                self.sc_data_bg[sc] = (self.sc_data.get(sc)).copy(deep=True) # Just copy it over and move on
+            print("Ignoring background subtraction process.")
 
-    def intercalibrate(self, intercalibration_values): # Step 4
+    def intercalibrate(self, intercalibration_factors, perform_process=True): # Step 4
         """Adjusts the data based on the given intercalibration values."""
-        for sc in self.spacecraft_list:
-            try:
-                print(sc)
-                print(intercalibration_values[sc])
-                self.sc_data_ic[sc] = intercalibration_calculation(self.sc_data_background.get(sc), intercalibration_values[sc])
-            except Exception as e:
-                print(f"Warning: Could not intercalibrate for {sc}: {e}")
-        print("Intercalibration function complete.")
+        if perform_process:
+            for sc in self.spacecraft_list:
+                if True: #try:
+                    # print(sc)
+                    # print(intercalibration_factors[sc])
+                    self.sc_data_ic[sc] = intercalibration_calculation(self.sc_data_bg.get(sc), intercalibration_factors[sc])
+                    # print(self.sc_data_bg.get(sc).head())
+                    # print(self.sc_data_ic.get(sc).head())
+                # except Exception as e:
+                #     print(f"Warning: Could not intercalibrate for {sc}: {e}")
+            print("Intercalibration function complete.")
+        else:
+            for sc in self.spacecraft_list:
+                self.sc_data_ic[sc] = (self.sc_data_bg.get(sc)).copy(deep=True)
+            print("Ignoring intercalibration process.")
 
-    def radial_scale(self, radial_scaling_factors): # Step 5
+
+    def radial_scale(self, radial_scaling_factors, perform_process): # Step 5
         """Scales the data using the functions presented in FarwaEA2025."""
 
         if len(self.sm_data) == 0:
+            print("Loading solarmach loop data from rad scale function")
             self._load_solarmach_loop()
+        else:
+            print(self.sm_data)
 
-        for sc in self.spacecraft_list:
-            try:
-                self.sc_data_rs[sc] = radial_scaling_calculation(self.sc_data_ic.get(sc), radial_scaling_factors)
-            except Exception as e:
-                print(f"Warning: Could not radial scale for {sc}: {e}")
-        print("Radial Scaling function complete.")
+        if perform_process:
+            for sc in self.spacecraft_list:
+                if True: #try:
+                    self.sc_data_rs[sc] = radial_scaling_calculation(self.sc_data_ic.get(sc), radial_scaling_factors)
+                # except Exception as e:
+                #     print(f"Warning: Could not radial scale for {sc}: {e}")
+            print("Radial Scaling function complete.")
+        else:
+            for sc in self.spacecraft_list:
+                self.sc_data_rs[sc] = (self.sc_data_ic.get(sc)).copy(deep=True)
+            print("Ignoring radial scaling process.")
 
     def plot_intensities(self, **kwargs):
         """Plots the time series for each given observer."""
@@ -256,64 +290,92 @@ class SEPEvent:
         if 'background_window' in kwargs:
             bg_zone = kwargs['background_window']
 
+
         scdata = {}
         if len(self.sc_data_rs) != 0:
-            print('Using rs data')
+            print('Using rs data for profile')
             scdata = self.sc_data_rs
         elif len(self.sc_data_ic) != 0:
-            print('Using ic data')
+            print('Using ic data for profile')
             scdata = self.sc_data_ic
-        elif len(self.sc_data_background) != 0:
-            print('Using bg data')
-            scdata = self.sc_data_background
+        elif len(self.sc_data_bg) != 0:
+            print('Using bg data for profile')
+            scdata = self.sc_data_bg
         elif len(self.sc_data) != 0:
-            print('Using OG data')
+            print('Using OG data for profile')
             scdata = self.sc_data
 
         if len(scdata) != 0:
-            try:
-                plot_timeseries_result(scdata, self.out_path, self.start, bg_zone);
-            except Exception as e:
-                print(f"Warning: Could not plot figure: {e}")
+            if True: #try:
+                plot_timeseries_result(scdata, self.out_path, self.start, self.channel_labels, bg_zone);
+            # except Exception as e:
+            #     print(f"Warning: Could not plot figure: {e}")
         else:
             print("Please run '*.load_spacecraft_data()' first.")
 
     # Gaussian Fitting
-    def _get_peak_fits(self, window_length=10): # Step 6.1 or 7.2
+    def _get_peak_fits(self, scdata, window_length=10): # Step 6.1 or 7.2
+        """Given the latest form of the dataset, this finds the peak intensities to plot."""
         if len(self.sm_data) == 0:
+            print("Collecting sm loop from get peak fits")
             self._load_solarmach_loop()
         """Calculates the Gaussian curve fitted to the peak intensities."""
-        self.peak_data = find_peak_intensity(self.sc_data, self.out_path, self.start, window_length)
+        self.peak_data = find_peak_intensity(scdata, self.out_path, self.start, window_length)
 
     def plot_peak_fits(self, window_length=10): # Step 6
         """Plots the Gaussian curve fitted to the peak intensities."""
-        self._get_peak_fits(window_length=window_length)
-        plot_peak_intensity(self.sc_data, self.out_path, self.start, self.peak_data)
+        scdata = {}
+        if len(self.sc_data_rs) != 0:
+            print('Using rs data for peak fits')
+            scdata = self.sc_data_rs
+        elif len(self.sc_data_ic) != 0:
+            print('Using ic data for peak fits')
+            scdata = self.sc_data_ic
+        elif len(self.sc_data_bg) != 0:
+            print('Using bg data for peak fits')
+            scdata = self.sc_data_bg
+        elif len(self.sc_data) != 0:
+            print('Using OG data for peak fits')
+            scdata = self.sc_data
+
+        if len(scdata) == 0:
+            print("Please run '*.load_spacecraft_data() first.")
+        else:
+            self._get_peak_fits(scdata, window_length=window_length)
+            plot_peak_intensity(scdata, self.out_path, self.start, self.peak_data)
 
     def _get_reference_point(self):
-
-        self.reference = find_reference_loc(self.sc_data, self.sm_data_short)
+        """Function to find a reference point for the Gaussian calculations.
+            Used when a flare reference isnt provided."""
+        scdata = {}
+        if len(self.sc_data_ic) != 0:
+            print('Using ic data for ref point')
+            scdata = self.sc_data_ic
+        elif len(self.sc_data_bg) != 0:
+            print('Using bg data for ref point')
+            scdata = self.sc_data_bg
+        elif len(self.sc_data) != 0:
+            print('Using OG data for ref point')
+            scdata = self.sc_data
+        self.reference = find_reference_loc(scdata, self.sm_data_short)
 
     def calc_Gaussian_fit(self): # Step 7
         """Calculates the Gaussian fits at each time interval."""
-        if len(self.sm_data) == 0:
-            self._load_solarmach_loop()
+        # if len(self.sm_data) == 0:
+        #     self._load_solarmach_loop()
         if len(self.peak_data) == 0:
             self._get_peak_fits()
-        try:
-            self.sc_data['Gauss'] = fit_gauss_curves_to_data(self.sc_data, self.out_path, self.reference, self.flare_loc, self.peak_data);
-        except Exception as e:
-            print(f"Warning: Could not calculate Gaussian fit: {e}")
+        if True: #try:
+            self.sc_data_rs['Gauss'] = fit_gauss_curves_to_data(self.sc_data_rs, self.out_path, self.reference, self.flare_loc, self.peak_data);
+        # except Exception as e:
+        #     print(f"Warning: Could not calculate Gaussian fit: {e}")
 
     # Final Results
-    def plot_gauss_results(self): # Step 8
-        try:
-            if np.isnan(self.flare_loc[0]):
-                plot_gauss_fits_timeseries(self.sc_data, self.out_path, self.start, self.reference);
-            else:
-                plot_gauss_fits_timeseries(self.sc_data, self.out_path, self.start, self.reference, flare_loc=self.flare_loc);
-        except Exception as e:
-            print(f"Warning: Could not plot figure: {e}")
+    def plot_Gauss_results(self): # Step 8
+        if True: #try:
+            plot_gauss_fits_timeseries(self.sc_data_rs, self.out_path, self.start, self.reference, self.channel_labels, self.flare_loc);
+        # except Exception as e:
+        #     print(f"Warning: Could not plot figure: {e}")
 
 
 
@@ -517,6 +579,12 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
     spacecraft = spacecraft.lower()
 
     if 'psp' == spacecraft:
+        if JAX_TESTERS:
+            psp = pd.read_csv(data_path+'psp_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            energy_range_lbl = "11.3-16.0 MeV"
+            return psp, energy_range_lbl
+
+
         psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
                                           startdate=dates[0], enddate=dates[1],
                                           path=data_path, resample=None) # can do resample='1min' but its not clean.
@@ -532,8 +600,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
+
         bin_width = []
-        for n in range(bin_list[0], bin_list[1]+1):
+        energy_range = []
+        for n in range(bin_list[0], bin_list[1]+1): # gaining the bin width for each channel
             binstr = str(psp_meta['H_ENERGY_LABL'][n]).strip().split('-')
             #print('The bin string is now: ', binstr)
 
@@ -542,7 +612,15 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             bin_end = float(bin_end[0].strip())
 
             bin_width.append(bin_end - bin_start)
+            if len(energy_range) == 0:
+                energy_range.append(bin_start)
+            if n == bin_list[1]:
+                energy_range.append(bin_end)
         #print('PSP bin width: ', bin_width)
+
+        # Get the energy range for labels
+        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        print(energy_range_lbl)
 
 
         # Merge the channels
@@ -571,11 +649,17 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         # psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
         
 
-        return psp#_sm
+        return psp, energy_range_lbl
 
 
 
     if 'soho' == spacecraft:
+        if JAX_TESTERS:
+            soho = pd.read_csv(data_path+'soho_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            energy_range_lbl = "13.0-16.0 MeV"
+            return soho, energy_range_lbl
+
+
         soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path, resample=None,
@@ -591,14 +675,21 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
+
         bin_width = []
+        energy_range = []
         for n in range(bin_list[0], bin_list[1]+1):
             soho_meta = soho_meta['channels_dict_df_p']
             bin_start = soho_meta.loc[n, 'lower_E']
             bin_end = soho_meta.loc[n, 'upper_E']
 
             bin_width.append(bin_end - bin_start)
-
+            if len(energy_range) == 0:
+                energy_range.append(bin_start)
+            if n == bin_list[1]:
+                energy_range.append(bin_end)
+        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        print(energy_range_lbl)
 
         # Calculate the uncertainty
         for n in bin_list: # data provided as intensities (PH) or counts/min (PHC)
@@ -621,9 +712,14 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             soho.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
         #soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
 
-        return soho#_sm
+        return soho, energy_range_lbl#_sm
 
     if 'stereo-a' == spacecraft:
+        if JAX_TESTERS:
+            sta = pd.read_csv(data_path+'sta_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            energy_range_lbl = "13.6-15.1 MeV"
+            return sta, energy_range_lbl
+
         sta_df, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
                                        startdate=dates[0], enddate=dates[1],
                                        path=data_path, resample=None,
@@ -641,13 +737,22 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
+
         bin_width = []
+        energy_range = []
         for n in range(bin_list[0], bin_list[1]+1):
             sta_meta = sta_meta['channels_dict_df_p']
             bin_start = sta_meta.loc[n, 'lower_E']
             bin_end = sta_meta.loc[n, 'upper_E']
 
             bin_width.append(bin_end - bin_start)
+            bin_width.append(bin_end - bin_start)
+            if len(energy_range) == 0:
+                energy_range.append(bin_start)
+            if n == bin_list[1]:
+                energy_range.append(bin_end)
+        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        print(energy_range_lbl)
 
 
         # Merge the channels
@@ -665,10 +770,15 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             sta.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
         #sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
 
-        return sta#_sm
+        return sta, energy_range_lbl#_sm
 
 
     if 'solar orbiter' == spacecraft:
+        if JAX_TESTERS:
+            solo = pd.read_csv(data_path+'solo_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            energy_range_lbl = "12.4-15.7 MeV"
+            return solo, energy_range_lbl
+
         solo_df1, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
                                       startdate=dates[0], enddate=dates[1],
                                       viewing='omni', autodownload=True,
@@ -688,9 +798,19 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             bin_list.append(bin_list[0])
         else:
             bin_label = f"{bin_list[0]}-{bin_list[1]}"
+
         bin_width = []
+        energy_range = []
         for n in range(bin_list[0], bin_list[1]+1):
             bin_width.append(solo_meta['H_Bins_Width'][n])
+
+            if len(energy_range) == 0:
+                energy_range.append(solo_meta['H_Bins_Low_Energy'][n])
+            if n == bin_list[1]:
+                energy_range.append(solo_meta['H_Bins_Low_Energy'][n+1])
+
+        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        print(energy_range_lbl)
 
         # Merge the channels
         solo_df2 = {'Time': solo_df1.index}
@@ -706,7 +826,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             solo.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
         #solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
 
-        return solo#_sm
+        return solo, energy_range_lbl#_sm
 
 
     # Merge all the relevant columns into one df
@@ -950,7 +1070,7 @@ def fit_gauss_curves_to_data(sc_dict, data_path, reference, flare_loc, peak_data
 
     obs = list(sc_dict.keys())
 
-    for i in sc_dict[obs[0]].index: # iterate through each timestep
+    for i in tqdm(sc_dict[obs[0]].index): # iterate through each timestep
         #if i.day != 29: #if np.isnan(sc_dict[obs[0]]['r_dist']): # Doesn't try calculate when solarmach data is not available
         #    continue
         x, xerr, y, yerr, sc_arr, x_real = ([] for i in range(6))
@@ -1035,7 +1155,7 @@ def fit_gauss_curves_to_data(sc_dict, data_path, reference, flare_loc, peak_data
 ## Plotters
 ################################################
 
-def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
+def plot_timeseries_result(sc_dict, data_path, date, channel_labels, background_window=[]):
     """Plots the time series for each observer."""
     # Determine how many subplots are needed
     obs = list(sc_dict.keys())
@@ -1047,6 +1167,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
     # Title
     ax[0].set_title(date.strftime("%H:%M - %d %b, %Y"), pad=9, loc='left')
     fig.supylabel('Intensity')
+
 
     for n, sc in enumerate(obs):
         #sc = obs[n]
@@ -1066,7 +1187,7 @@ def plot_timeseries_result(sc_dict, data_path, date, background_window=[]):
 
         # Plot the data
         ax[n].semilogy(sc_dict[sc]['Flux'], color=mrkr['color'],
-                       label=mrkr['label'], linestyle='solid')
+                       label=f"{mrkr['label']} ({channel_labels[sc]})", linestyle='solid')
         ax[n].fill_between(x = sc_dict[sc].index,
                            y1= sc_dict[sc]['Flux'] - sc_dict[sc]['Uncertainty'],
                            y2= sc_dict[sc]['Flux'] + sc_dict[sc]['Uncertainty'],
@@ -1326,7 +1447,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep,
 
 
 
-def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, **kwargs):
+def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, channel_labels, flare_loc, **kwargs):
     """Plots the following time series: intensity, gauss center, and gauss sigma."""
 
     fig, ax = plt.subplots(3, 1, figsize=[6,6], dpi=300, sharex=True)
@@ -1349,7 +1470,7 @@ def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, **kwargs):
             continue
         mrkr = marker_settings[sc]
 
-        ax[0].semilogy(s_df['Flux'], color=mrkr['color'], label=mrkr['label'])
+        ax[0].semilogy(s_df['Flux'], color=mrkr['color'], label=f"{mrkr['label']} ({channel_labels[sc]})")
         ax[0].fill_between(x = s_df.index,
                            y1= s_df['Flux'] - s_df['Uncertainty'],
                            y2= s_df['Flux'] + s_df['Uncertainty'],
@@ -1358,15 +1479,14 @@ def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, **kwargs):
         ylimits['intensity'][0] = np.nanmin([ylimits['intensity'][0], np.nanmin(s_df['Flux'])] )
         ylimits['intensity'][1] = np.nanmax([ylimits['intensity'][1], np.nanmax(s_df['Flux'])] )
 
-    ax[0].legend(loc='upper center', ncols=5, bbox_to_anchor=(0.5,1.15))
+    ax[0].legend(loc='upper center', ncols=4, bbox_to_anchor=(0.5,1.15))
 
 
     # Plot the flare location if its provided
-    if 'flare_loc' in kwargs.keys():
-        flare = kwargs['flare_loc']
-        ax[1].axhline(y=flare[0],
+    if not np.isnan(flare_loc[0]):
+        ax[1].axhline(y=flare_loc[0],
                       linestyle='dashed', color='k', alpha=0.9, linewidth=0.5,
-                      label=f"Flare at [{flare[0]}, {flare[1]}]{DEGREE_TEXT}")
+                      label=f"Flare at [{flare_loc[0]}, {flare_loc[1]}]{DEGREE_TEXT}")
         ax[1].legend()
 
     # Plot the Gaussian results
