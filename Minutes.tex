@@ -216,39 +216,7 @@
     \end{enumerate}
 
 
-
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    % \chapter{December 1, 2025}
-    % \textit{JTL thoughts.} \\
-
-    % Ensuring the location of the flare is not a problem (i.e. if the points are [150, 175, -165, -130], then the curve fit won't work):
-    % \begin{itemize}
-    %     \item If the abs(longitude) for at least 3 sc > 90 then add 360 to the negative values. \textbf{This results in limits of 0:360.}
-    %     \begin{table*}[h!]
-    %         \centering
-    %         \begin{tabular}{rcccc}
-    %              original & 150 & 175 & -165 & -130 \\
-    %              updated & 150 & 175 & 195 & 230 \\
-    %         \end{tabular}
-    %     \end{table*}
-    %     \item If the abs(longitude) for at least 3 sc < 90, then leave it. \textbf{This results in limits of -180:180.}
-    %     \begin{table*}[h!]
-    %         \centering
-    %         \begin{tabular}{rcccc}
-    %              original & -150 & -100 & -45 & 30 \\
-    %              updated & -150 & -100 & -45 & 30 \\
-    %         \end{tabular}
-    %     \end{table*}
-    % \end{itemize}
-    % Alternatively:
-    % \begin{itemize}
-    %     \item If the max amplitude comes from a sc with abs(longitude) > 90. Then the limits are 0:360.
-    %     \item if the max amplitude comes from a sc with abs(longitude) < 90. Then the limits are -180:180.
-    % \end{itemize}
-    % or both...
-    % \textit{Using the peak calculations: the sc with the max(intensity) has an abs(longitude) > 90 \textbf{and} the abs(longitude) of at least 3 sc is > 90; the limits become 0:360.}
-    
+   
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{December 2, 2025}
     \textit{Attendees:} Jan Gieseler, Nina Dresing, Jax T Lang. \\
@@ -279,6 +247,55 @@
     \end{enumerate}
 
 \textbf{Looking to do a main code \textit{handover} next week Monday, when Jan will try to incorporate it to the SOLER Tools github.}
+
+
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \chapter{December 8, 2025}
+    \textit{JTL thoughts: Naming conventions} \\
+
+    The other names within the SERPENTINE/SOLER toolbox are:
+    \begin{itemize}
+        \item \textbf{Formal Title: \texttt{Python class name}: \textit{(notebook name)}}
+        \item Solar-MACH: \\
+        \texttt{from solarmach import SolarMACH}\\ 
+        \textit{(solarmach.ipynb)}
+        \item SEP Data Loader: \textit{(data\_loader.ipynb)}
+        \begin{itemize}
+            \item \texttt{from solo\_epd\_loader import epd\_load}
+            \item \texttt{from seppy.loader.psp import psp\_isois\_load}
+            \item \texttt{from seppy.loader.soho import soho\_load}
+            \item \texttt{from seppy.loader.stereo import stereo\_load}
+            \item \texttt{from seppy.loader.wind import wind3dp\_load}
+        \end{itemize}
+        \item Multi Spacecraft Plot:\\ 
+        \texttt{from multi\_inst\_plots import Event}\\
+        \textit{(SEP\_Multi-Spacecraft-Plot.ipynb)}
+        \item Multi Instrument Plot:\\ 
+        \texttt{import multi\_inst\_plots as m}\\ 
+        \textit{(SEP\_Multi-Instrument-Plot.ipynb)}
+        \item SEP Pitch-angle distribution (PAD) and first-order anisotropies:\\ 
+        \texttt{from anisotropy import run\_SEPevent}\\ 
+        \textit{(SEP\_PADs-and-Anisotropy.ipynb)}
+        \item PyOnset: \\
+        \texttt{import seppy.tools.widgets\_onset as w} \\
+        \texttt{from pyonset import Onset, BootstrapWindow}\\ 
+        \textit{(SEP\_PyOnset.ipynb)}
+        \item SEP Regression Onset Tool: \\
+        \texttt{import regression\_onset as reg}\\
+        \texttt{from seppy.tools import Event}\\ 
+        \textit{(SEP\_Regression-Onset.ipynb)}
+        \item SEP Fluence Spectra Tool:\\ 
+        \texttt{from fluence import Event}\\
+        \textit{(SEP\_Fluence-Spectra.ipynb)}
+        \item SEP Spectra Tool:\\ 
+        \texttt{from spectra import Event}\\
+        \textit{(SEP\_Spectra.ipynb)}
+    \end{itemize}
+
+    Based on Nina's comment in the last meeting, this tool would be called something along the lines of:\\
+    \textbf{SEP Spatial Distribution Analysis} \textit{(SEP\_Spatial-Distribution.ipynb)}\\
+    \texttt{from spatial\_dist\_analysis import SpatialEvent as sd\_event}
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \chapter{December 16, 2025}
