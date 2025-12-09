@@ -98,7 +98,7 @@ class SpatialEvent:
             self.flare_loc = kwargs['flare_loc']
             self.reference = kwargs['flare_loc'][0] # Using the longitude as the ref point
         else:
-            self.flare_loc = [np.nan, np.nan]
+            self.flare_loc = [None, None]
             self.reference = np.nan
 
 
@@ -126,6 +126,13 @@ class SpatialEvent:
         # List and load the data
         self.spacecraft_list = []
 
+        # Define the solar wind speed list
+        self.vsw_list = []
+        if 'V_sw' in kwargs.keys():
+            vsw = kwargs['V_sw']
+            if not pd.isna(vsw):
+                self.vsw_list = [vsw]
+
         ## Solarmach data
         self.sm_data_short = {}
         self.sm_data = {}
@@ -144,11 +151,18 @@ class SpatialEvent:
     def _show_fleet(self): # Step 1
         """As the user defines the event, the solarmach information at the start time
         of the event is plotted and shown."""
-        sm = SolarMACH(self.start, ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'], vsw_list=[400]*5, reference_long=self.flare_loc[0], reference_lat=self.flare_loc[1], coord_sys='Stonyhurst', silent=True)
+        sm = SolarMACH(self.start,
+                       ['BepiColombo', 'PSP', 'SOHO', 'Solar Orbiter', 'STEREO-A'],
+                       vsw_list = self.vsw_list*5,
+                       reference_long = self.flare_loc[0],
+                       reference_lat = self.flare_loc[1],
+                       coord_sys = 'Stonyhurst',
+                       silent = False)
 
         sm.plot(outfile=self.out_path+"SolarMACH.png")
 
         self.sm_data_short = sm.coord_table.copy()
+        self.sm_data_short.index = self.sm_data_short['Spacecraft/Body']
         display(self.sm_data_short)
 
     def _load_solarmach_loop(self): # Step 5.1 or 6.2 or 7.1
@@ -156,8 +170,12 @@ class SpatialEvent:
         if np.isnan(self.reference):
             self.reference = self._get_reference_point()
         if True: #try:
-            self.sm_data = solarmach_loop(self.spacecraft_list, [self.start, self.end],
-                                              self.out_path, self.resampling, self.reference)
+            self.sm_data = solarmach_loop(observers = self.spacecraft_list,
+                                          dates = [self.start, self.end],
+                                          data_path = self.out_path,
+                                          resampling = self.resampling,
+                                          vsw_list = self.vsw_list,
+                                          source_loc = self.reference)
         # except Exception as e:
         #     print(f"Warning: Could not load solarmach data: {e}")
 
@@ -229,16 +247,27 @@ class SpatialEvent:
         return self.peak_data
 
     # Data Processing
-    def background_subtract(self, background_window, perform_process=True): # Step 3
+    def background_subtract(self, background_window=[], perform_process=True): # Step 3
         """Given a window by the user, the function calculates the average, reduces the
         intensity by this average, and results in a background reduced dataset."""
         if perform_process:
-            for sc in self.spacecraft_list:
-                if True: #try:
-                    self.sc_data_bg[sc] = background_subtracting(self.sc_data.get(sc), background_window)
-                # except Exception as e:
-                #     print(f"Warning: Could not background subtract for {sc}: {e}")
-            print("Background subtraction function complete.")
+            if not isinstance(background_window, list) or \
+                not isinstance(background_window[0], dt.datetime) or \
+                    not isinstance(background_window[1], dt.datetime) or \
+                        len(background_window) != 2:
+                print("Incorrect value type given to 'background_window'.")
+            else:
+                if len(background_window) == 0: # In case nothing is passed
+                    background_window = [self.start - dt.timedelta(hours=2),
+                                        self.start + dt.timedelta(hours=1)]
+
+
+                for sc in self.spacecraft_list:
+                    if True: #try:
+                        self.sc_data_bg[sc] = background_subtracting(self.sc_data.get(sc), background_window)
+                    # except Exception as e:
+                    #     print(f"Warning: Could not background subtract for {sc}: {e}")
+                print("Background subtraction function complete.")
         else:
             for sc in self.spacecraft_list:
                 self.sc_data_bg[sc] = (self.sc_data.get(sc)).copy(deep=True) # Just copy it over and move on
@@ -246,14 +275,21 @@ class SpatialEvent:
 
     def intercalibrate(self, intercalibration_factors, perform_process=True): # Step 4
         """Adjusts the data based on the given intercalibration values."""
+        for ick in intercalibration_factors.keys():
+            if ick not in self.spacecraft_list:
+                print("This spacecraft is not recognised in this event run:")
+                print(ick)
+                perform_process=False
+        if len(intercalibration_factors) != len(self.spacecraft_list):
+            print("The number of IC factors doesn't match the number of spacecraft.")
+            print('Factors for: ', list(intercalibration_factors.keys()))
+            print('Spacecraft included in event run: ', self.spacecraft_list)
+            perform_process = False
+
         if perform_process:
             for sc in self.spacecraft_list:
                 if True: #try:
-                    # print(sc)
-                    # print(intercalibration_factors[sc])
                     self.sc_data_ic[sc] = intercalibration_calculation(self.sc_data_bg.get(sc), intercalibration_factors[sc])
-                    # print(self.sc_data_bg.get(sc).head())
-                    # print(self.sc_data_ic.get(sc).head())
                 # except Exception as e:
                 #     print(f"Warning: Could not intercalibrate for {sc}: {e}")
             print("Intercalibration function complete.")
@@ -289,6 +325,12 @@ class SpatialEvent:
         bg_zone = []
         if 'background_window' in kwargs:
             bg_zone = kwargs['background_window']
+            if not isinstance(bg_zone, list) or len(bg_zone) not in [0,2] or \
+                not isinstance(bg_zone[0], dt.datetime) or \
+                    not isinstance(bg_zone[1], dt.datetime):
+                        print("Incorrect value type given to 'background_window'.")
+                        bg_zone = []
+
 
 
         scdata = {}
@@ -377,31 +419,57 @@ class SpatialEvent:
         # except Exception as e:
         #     print(f"Warning: Could not plot figure: {e}")
 
+    def save_df_to_csv(self, label=''):
+        """Allows the user to save the observational data and Gaussian calculations
+            to a csv for their own use. Can pass optional label to add to csv filename."""
+        scdata = {}
+        if len(self.sc_data_rs) != 0:
+            scdata = self.sc_data_rs
+            print('using rs data')
+        elif len(self.sc_data_ic) != 0:
+            scdata = self.sc_data_ic
+            print('using ic data')
+        elif len(self.sc_data_bg) != 0:
+            scdata = self.sc_data_bg
+            print('using bg data')
+        elif len(self.sc_data) != 0:
+            scdata = self.sc_data
+            print('using og data')
 
+        if len(scdata) != 0:
+            dfs = pd.concat(scdata, axis=1, join='outer')
+            dfs.to_csv(self.out_path+f'SpatialIntensities{label}.csv', na_rep='nan')
+        else:
+            print("Please run '*.load_spacecraft_data()' first.")
 
 
 
 
 
 ## Solar mach
-def solarmach_loop(observers, dates, data_path, resampling, source_loc=None, coord_sys='Stonyhurst'):
+def solarmach_loop(observers, dates, data_path, resampling, vsw_list=[], source_loc=None, coord_sys='Stonyhurst'):
     """Downloads the fleet location data between the given dates with the
         given 'resampling' interval."""
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
 
     if filename in os.listdir(data_path):
-        sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1], parse_dates=True, na_values='nan')
-        return sm_loop
+        print("This data is already loaded, would you like to use this data? ")
+        if input("yes or no").lower() in ['yes', 'y']:
+            sm_loop = pd.read_csv(data_path+filename, index_col=0, header=[0,1], parse_dates=True, na_values='nan')
+            return sm_loop
 
     # Set up the time list to iterate through
     starting_time = dt.datetime(dates[0].year, dates[0].month, dates[0].day, dates[0].hour, 0) - dt.timedelta(hours=2) #Gathering enough background too
     date_list = pd.date_range(starting_time, dates[1], freq=resampling)
 
+    if len(vsw_list) == 1:
+        vsw_list = vsw_list*len(observers)
+
     sm_df = {}
     for t in tqdm(date_list): # tqdm shows the progress bar when downloading
-        sm10 = SolarMACH(t, observers, vsw_list=[],
-                         reference_long=source_loc,
-                         coord_sys=coord_sys, silent=True)
+        sm10 = SolarMACH(t, observers, vsw_list = vsw_list,
+                         reference_long = source_loc,
+                         coord_sys = coord_sys, silent=True)
         sm_df[t] = sm10.coord_table
 
     # Create a new dict with each spacecraft df saved separately
@@ -964,14 +1032,14 @@ def background_subtracting(df0, background_window):
 def find_reference_loc(sc_data, sm_data_short):
     """Using the peak values to roughly determine the best connected sc and """
     peak_int = 0
-    for sc, sc_df in sc_data:
+    for sc, sc_df in sc_data.items():
         if peak_int < np.nanmax(sc_df['Flux']):
             peak_int = np.nanmax(sc_df['Flux'])
             peak_sc = sc
     # prelim_peak_info = {'sc': peak_sc,
     #                     'int': peak_int,
     #                     'loc': sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']}
-
+    print(sm_data_short)
     return sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']
 
 
