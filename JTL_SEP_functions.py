@@ -131,7 +131,11 @@ class SpatialEvent:
         if 'V_sw' in kwargs.keys():
             vsw = kwargs['V_sw']
             if not pd.isna(vsw):
-                self.vsw_list = [vsw]
+                if isinstance(vsw, (int, float)):
+                    self.vsw_list = [vsw]
+                else:
+                    print("Wrong data type provided for vsw. Using 400 km/s instead.")
+                    self.vsw_list = [400]
 
         ## Solarmach data
         self.sm_data_short = {}
@@ -299,14 +303,25 @@ class SpatialEvent:
             print("Ignoring intercalibration process.")
 
 
-    def radial_scale(self, radial_scaling_factors, perform_process): # Step 5
+    def radial_scale(self, radial_scaling_factors, perform_process=True): # Step 5
         """Scales the data using the functions presented in FarwaEA2025."""
 
         if len(self.sm_data) == 0:
             print("Loading solarmach loop data from rad scale function")
             self._load_solarmach_loop()
-        else:
-            print(self.sm_data)
+
+        # Checking the radial scaling factors
+        if not isinstance(radial_scaling_factors, list):
+            print("Incorrect value type given to 'radial_scaling_factors'.")
+            perform_process = False
+        elif len(radial_scaling_factors) != 2:
+            print("Incorrect value given to 'radial_scaling_factors'.")
+            perform_process = False
+        elif not isinstance(radial_scaling_factors[0], (int, float)) or \
+                not isinstance(radial_scaling_factors[1], (int, float)):
+            print("Incorrect value type given to 'radial_scaling_factors'.")
+            perform_process = False
+
 
         if perform_process:
             for sc in self.spacecraft_list:
@@ -366,25 +381,29 @@ class SpatialEvent:
 
     def plot_peak_fits(self, window_length=10): # Step 6
         """Plots the Gaussian curve fitted to the peak intensities."""
-        scdata = {}
-        if len(self.sc_data_rs) != 0:
-            print('Using rs data for peak fits')
-            scdata = self.sc_data_rs
-        elif len(self.sc_data_ic) != 0:
-            print('Using ic data for peak fits')
-            scdata = self.sc_data_ic
-        elif len(self.sc_data_bg) != 0:
-            print('Using bg data for peak fits')
-            scdata = self.sc_data_bg
-        elif len(self.sc_data) != 0:
-            print('Using OG data for peak fits')
-            scdata = self.sc_data
 
-        if len(scdata) == 0:
-            print("Please run '*.load_spacecraft_data() first.")
+        if not isinstance(window_length, (float, int)):
+            print("Wrong data type for 'window_length'.")
         else:
-            self._get_peak_fits(scdata, window_length=window_length)
-            plot_peak_intensity(scdata, self.out_path, self.start, self.peak_data)
+            scdata = {}
+            if len(self.sc_data_rs) != 0:
+                print('Using rs data for peak fits')
+                scdata = self.sc_data_rs
+            elif len(self.sc_data_ic) != 0:
+                print('Using ic data for peak fits')
+                scdata = self.sc_data_ic
+            elif len(self.sc_data_bg) != 0:
+                print('Using bg data for peak fits')
+                scdata = self.sc_data_bg
+            elif len(self.sc_data) != 0:
+                print('Using OG data for peak fits')
+                scdata = self.sc_data
+
+            if len(scdata) == 0:
+                print("Please run '*.load_spacecraft_data() first.")
+            else:
+                self._get_peak_fits(scdata, window_length=window_length)
+                plot_peak_intensity(scdata, self.out_path, self.start, self.peak_data)
 
     def _get_reference_point(self):
         """Function to find a reference point for the Gaussian calculations.
@@ -403,8 +422,7 @@ class SpatialEvent:
 
     def calc_Gaussian_fit(self): # Step 7
         """Calculates the Gaussian fits at each time interval."""
-        # if len(self.sm_data) == 0:
-        #     self._load_solarmach_loop()
+
         if len(self.peak_data) == 0:
             self._get_peak_fits()
         if True: #try:
@@ -414,6 +432,9 @@ class SpatialEvent:
 
     # Final Results
     def plot_Gauss_results(self): # Step 8
+        if len(self.sc_data_rs.get('Gauss')) == 0:
+            self.calc_Gaussian_fit()
+
         if True: #try:
             plot_gauss_fits_timeseries(self.sc_data_rs, self.out_path, self.start, self.reference, self.channel_labels, self.flare_loc);
         # except Exception as e:
@@ -648,9 +669,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'psp' == spacecraft:
         if JAX_TESTERS:
-            psp = pd.read_csv(data_path+'psp_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
-            energy_range_lbl = "11.3-16.0 MeV"
-            return psp, energy_range_lbl
+            if 'psp_rawdata.csv' in os.listdir(data_path):
+                psp = pd.read_csv(data_path+'psp_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+                energy_range_lbl = "11.3-16.0 MeV"
+                return psp, energy_range_lbl
 
 
         psp_df, psp_meta = psp_isois_load(dataset='PSP_ISOIS-EPIHI_L2-HET-RATES60', # 'A_H_Flux_n' 'B_H_Uncertainty_n'
@@ -687,7 +709,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         #print('PSP bin width: ', bin_width)
 
         # Get the energy range for labels
-        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        energy_range_lbl = f"{energy_range[0]:.1f}-{energy_range[1]:.1f} MeV"
         print(energy_range_lbl)
 
 
@@ -723,9 +745,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'soho' == spacecraft:
         if JAX_TESTERS:
-            soho = pd.read_csv(data_path+'soho_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
-            energy_range_lbl = "13.0-16.0 MeV"
-            return soho, energy_range_lbl
+            if 'soho_rawdata.csv' in os.listdir(data_path):
+                soho = pd.read_csv(data_path+'soho_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+                energy_range_lbl = "13.0-16.0 MeV"
+                return soho, energy_range_lbl
 
 
         soho_df, soho_meta = soho_load(dataset='SOHO_ERNE-HED_L2-1MIN', # 'PH_n' 'PHC_n'
@@ -756,7 +779,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
                 energy_range.append(bin_start)
             if n == bin_list[1]:
                 energy_range.append(bin_end)
-        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        energy_range_lbl = f"{energy_range[0]:.1f}-{energy_range[1]:.1f} MeV"
         print(energy_range_lbl)
 
         # Calculate the uncertainty
@@ -784,9 +807,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'stereo-a' == spacecraft:
         if JAX_TESTERS:
-            sta = pd.read_csv(data_path+'sta_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
-            energy_range_lbl = "13.6-15.1 MeV"
-            return sta, energy_range_lbl
+            if 'sta_rawdata.csv' in os.listdir(data_path):
+                sta = pd.read_csv(data_path+'sta_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+                energy_range_lbl = "13.6-15.1 MeV"
+                return sta, energy_range_lbl
 
         sta_df, sta_meta = stereo_load(instrument='HET', spacecraft='ahead', # 'Proton_Flux_n' 'Proton_Sigma_n'
                                        startdate=dates[0], enddate=dates[1],
@@ -819,7 +843,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
                 energy_range.append(bin_start)
             if n == bin_list[1]:
                 energy_range.append(bin_end)
-        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        energy_range_lbl = f"{energy_range[0]:.1f}-{energy_range[1]:.1f} MeV"
         print(energy_range_lbl)
 
 
@@ -843,9 +867,10 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'solar orbiter' == spacecraft:
         if JAX_TESTERS:
-            solo = pd.read_csv(data_path+'solo_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
-            energy_range_lbl = "12.4-15.7 MeV"
-            return solo, energy_range_lbl
+            if 'solo_rawdata.csv' in os.listdir(data_path):
+                solo = pd.read_csv(data_path+'solo_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+                energy_range_lbl = "12.4-15.7 MeV"
+                return solo, energy_range_lbl
 
         solo_df1, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
                                       startdate=dates[0], enddate=dates[1],
@@ -877,7 +902,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
             if n == bin_list[1]:
                 energy_range.append(solo_meta['H_Bins_Low_Energy'][n+1])
 
-        energy_range_lbl = f"{energy_range[0]}-{energy_range[1]} MeV"
+        energy_range_lbl = f"{energy_range[0]:.1f}-{energy_range[1]:.1f} MeV"
         print(energy_range_lbl)
 
         # Merge the channels
@@ -952,11 +977,22 @@ def radial_scaling_calculation(df0, scaling_values):
             unc_minus = df.loc[t, 'Flux'] * (df.loc[t, 'r_dist'] **(a-b))
             unc_limit_minus = abs(f_rscld - unc_minus)
     
-            if (unc_limit_plus >= unc_limit_minus) and (f_rscld - unc_limit_plus > 0):
-                chosen_unc_limit = unc_limit_plus
-            elif (unc_limit_minus >= unc_limit_plus) and (f_rscld - unc_limit_minus > 0):
-                chosen_unc_limit = unc_limit_minus
-            else: # JAX TO FIX
+            unc_fail = False
+            if (unc_limit_plus >= unc_limit_minus): # plus is bigger than minus
+                if (f_rscld - unc_limit_plus) > 0: # plus is not bigger than f
+                    chosen_unc_limit = unc_limit_plus
+                elif (f_rscld - unc_limit_minus) > 0: # minus is not bigger than f
+                    chosen_unc_limit = unc_limit_minus
+                else:
+                    unc_fail = True # catch all
+            elif (unc_limit_minus >= unc_limit_plus): # minus is bigger than plus
+                if (f_rscld - unc_limit_minus > 0): # mins is not bigger than f
+                    chosen_unc_limit = unc_limit_minus
+                elif (f_rscld - unc_limit_plus) > 0: # plus is not bigger than f
+                    chosen_unc_limit = unc_limit_plus
+                else:
+                    unc_fail = True
+            if unc_fail: # JAX TO FIX
                 print("There's a problem with the limits")
                 print("OG flux: ", df.loc[t, 'Flux'])
                 print("OG rad: ", df.loc[t, 'r_dist'])
