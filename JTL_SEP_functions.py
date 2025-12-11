@@ -172,14 +172,16 @@ class SpatialEvent:
     def _load_solarmach_loop(self): # Step 5.1 or 6.2 or 7.1
         """Download the solarmach data for the time period."""
         if np.isnan(self.reference):
-            self.reference = self._get_reference_point()
+            self._get_reference_point()
         if True: #try:
+            print("The ref is now (in sm loop): ", self.reference)
+            jax=input()
             self.sm_data = solarmach_loop(observers = self.spacecraft_list,
                                           dates = [self.start, self.end],
                                           data_path = self.out_path,
                                           resampling = self.resampling,
-                                          vsw_list = self.vsw_list,
-                                          source_loc = self.reference)
+                                          source_loc = self.reference,
+                                          vsw_list = self.vsw_list)
         # except Exception as e:
         #     print(f"Warning: Could not load solarmach data: {e}")
 
@@ -419,6 +421,7 @@ class SpatialEvent:
             print('Using OG data for ref point')
             scdata = self.sc_data
         self.reference = find_reference_loc(scdata, self.sm_data_short)
+        print(self.reference)
 
     def calc_Gaussian_fit(self): # Step 7
         """Calculates the Gaussian fits at each time interval."""
@@ -468,7 +471,7 @@ class SpatialEvent:
 
 
 ## Solar mach
-def solarmach_loop(observers, dates, data_path, resampling, vsw_list=[], source_loc=None, coord_sys='Stonyhurst'):
+def solarmach_loop(observers, dates, data_path, resampling, source_loc, vsw_list=[], coord_sys='Stonyhurst'):
     """Downloads the fleet location data between the given dates with the
         given 'resampling' interval."""
     filename = f'SolarMACH_{dates[0].strftime("%d%m%Y")}_loop.csv'
@@ -520,6 +523,10 @@ def solarmach_loop(observers, dates, data_path, resampling, vsw_list=[], source_
             foot_long_error.append( foot_calc[1] )
 
             # Also store the separation between the source and obs footprint longitude
+            if "Longitudinal separation between body's magnetic footpoint and reference_long" not in tmp_df.columns:
+                print(tmp_df)
+                print(tmp_df.columns)
+                jax=input()
             long_sep.append(tmp_df["Longitudinal separation between body's magnetic footpoint and reference_long"][obs])
 
 
@@ -669,8 +676,8 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'psp' == spacecraft:
         if JAX_TESTERS:
-            if 'psp_rawdata.csv' in os.listdir(data_path):
-                psp = pd.read_csv(data_path+'psp_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            if f'psp_rawdata_{dates[0].strftime("%d%b%Y")}.csv' in os.listdir(data_path):
+                psp = pd.read_csv(data_path+f'psp_rawdata_{dates[0].strftime("%d%b%Y")}.csv', index_col=0, na_values='nan', parse_dates=True)
                 energy_range_lbl = "11.3-16.0 MeV"
                 return psp, energy_range_lbl
 
@@ -735,7 +742,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         # Resample
         psp = psp_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
         if JAX_TESTERS:
-            psp.to_csv(data_path+'psp_rawdata.csv', na_rep='nan')
+            psp.to_csv(data_path+f'psp_rawdata_{dates[0].strftime("%d%b%Y")}.csv', na_rep='nan')
         # psp_sm = pd.concat([psp, sm_df['PSP']], axis=1, join='outer')
         
 
@@ -745,8 +752,8 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'soho' == spacecraft:
         if JAX_TESTERS:
-            if 'soho_rawdata.csv' in os.listdir(data_path):
-                soho = pd.read_csv(data_path+'soho_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            if f'soho_rawdata_{dates[0].strftime("%d%b%Y")}.csv' in os.listdir(data_path):
+                soho = pd.read_csv(data_path+f'soho_rawdata_{dates[0].strftime("%d%b%Y")}.csv', index_col=0, na_values='nan', parse_dates=True)
                 energy_range_lbl = "13.0-16.0 MeV"
                 return soho, energy_range_lbl
 
@@ -800,15 +807,15 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         # Resample
         soho = soho_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
         if JAX_TESTERS:
-            soho.to_csv(data_path+'soho_rawdata.csv', na_rep='nan')
+            soho.to_csv(data_path+f'soho_rawdata_{dates[0].strftime("%d%b%Y")}.csv', na_rep='nan')
         #soho_sm = pd.concat([soho, sm_df['SOHO']], axis=1, join='outer')
 
         return soho, energy_range_lbl#_sm
 
     if 'stereo-a' == spacecraft:
         if JAX_TESTERS:
-            if 'sta_rawdata.csv' in os.listdir(data_path):
-                sta = pd.read_csv(data_path+'sta_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            if f'sta_rawdata_{dates[0].strftime("%d%b%Y")}.csv' in os.listdir(data_path):
+                sta = pd.read_csv(data_path+f'sta_rawdata_{dates[0].strftime("%d%b%Y")}.csv', index_col=0, na_values='nan', parse_dates=True)
                 energy_range_lbl = "13.6-15.1 MeV"
                 return sta, energy_range_lbl
 
@@ -859,7 +866,7 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         # Resample
         sta = sta_df2.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
         if JAX_TESTERS:
-            sta.to_csv(data_path+'sta_rawdata.csv', na_rep='nan')
+            sta.to_csv(data_path+f'sta_rawdata_{dates[0].strftime("%d%b%Y")}.csv', na_rep='nan')
         #sta_sm = pd.concat([sta, sm_df['STEREO-A']], axis=1, join='outer')
 
         return sta, energy_range_lbl#_sm
@@ -867,22 +874,27 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
 
     if 'solar orbiter' == spacecraft:
         if JAX_TESTERS:
-            if 'solo_rawdata.csv' in os.listdir(data_path):
-                solo = pd.read_csv(data_path+'solo_rawdata.csv', index_col=0, na_values='nan', parse_dates=True)
+            if f'solo_rawdata_{dates[0].strftime("%d%b%Y")}.csv' in os.listdir(data_path):
+                solo = pd.read_csv(data_path+f'solo_rawdata_{dates[0].strftime("%d%b%Y")}.csv', index_col=0, na_values='nan', parse_dates=True)
                 energy_range_lbl = "12.4-15.7 MeV"
                 return solo, energy_range_lbl
 
-        solo_df1, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
-                                      startdate=dates[0], enddate=dates[1],
-                                      viewing='omni', autodownload=True,
-                                      pos_timestamp='start', path=data_path)
+        # # Download omnidirectional
+        # solo_df1, solo_dfe, solo_meta = epd_load(sensor='het', level='l2', # [('H_Flux','H_Flux_n')] [('H_Uncertainty','H_Uncertainty_n')]
+        #                               startdate=dates[0], enddate=dates[1],
+        #                               viewing='omni', autodownload=True,
+        #                               pos_timestamp='start', path=data_path)
 
-        # if JAX_TESTERS:
-        #     print(solo_df1)
-        #     solo_df1 = solo_dfp.resample('1min').mean()
-        #     solo_df1.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
-        # else:
-        #     solo_df1 = solo_dfp
+        # Download directional data
+        solo_s, soloe, solo_meta = epd_load(sensor='het', level='l2', startdate=dates[0], enddate=dates[1],
+                                            viewing='sun', autodownload=True, pos_timestamp='start', path=data_path)
+        solo_a, soloe, solo_meta = epd_load(sensor='het', level='l2', startdate=dates[0], enddate=dates[1],
+                                            viewing='asun', autodownload=True, pos_timestamp='start', path=data_path)
+        solo_n, soloe, solo_meta = epd_load(sensor='het', level='l2', startdate=dates[0], enddate=dates[1],
+                                            viewing='north', autodownload=True, pos_timestamp='start', path=data_path)
+        solo_d, soloe, solo_meta = epd_load(sensor='het', level='l2', startdate=dates[0], enddate=dates[1],
+                                            viewing='south', autodownload=True, pos_timestamp='start', path=data_path)
+
 
         # Find channels and bin widths
         bin_list = proton_channels['Solar Orbiter']
@@ -905,18 +917,66 @@ def load_sc_data(spacecraft, proton_channels, dates, data_path, resampling):
         energy_range_lbl = f"{energy_range[0]:.1f}-{energy_range[1]:.1f} MeV"
         print(energy_range_lbl)
 
-        # Merge the channels
-        solo_df2 = {'Time': solo_df1.index}
-        solo_df2["Flux"] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
-        solo_df2["Uncertainty"] = weighted_bin_merge(solo_df1, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
+        # Merge the channels and resample to 1min
+        #Sun
+        solo_s1 = {'Time': solo_s.index}
+        solo_s1["Flux"] = weighted_bin_merge(solo_s, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
+        solo_s1["Uncertainty"] = weighted_bin_merge(solo_s, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
 
-        solo_df3 = pd.DataFrame.from_dict(solo_df2)
-        solo_df3.set_index('Time', inplace=True)
+        solo_s2 = pd.DataFrame.from_dict(solo_s1)
+        solo_s2.set_index('Time', inplace=True)
+        solo_s3 = solo_s2.resample('1min').agg({"Flux": 'mean', "Uncertainty": rms_mean})
+
+        #Asun
+        solo_a1 = {'Time': solo_a.index}
+        solo_a1["Flux"] = weighted_bin_merge(solo_a, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
+        solo_a1["Uncertainty"] = weighted_bin_merge(solo_a, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
+
+        solo_a2 = pd.DataFrame.from_dict(solo_a1)
+        solo_a2.set_index('Time', inplace=True)
+        solo_a3 = solo_a2.resample('1min').agg({"Flux": 'mean', "Uncertainty": rms_mean})
+
+        #North
+        solo_n1 = {'Time': solo_n.index}
+        solo_n1["Flux"] = weighted_bin_merge(solo_n, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
+        solo_n1["Uncertainty"] = weighted_bin_merge(solo_n, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
+
+        solo_n2 = pd.DataFrame.from_dict(solo_n1)
+        solo_n2.set_index('Time', inplace=True)
+        solo_n3 = solo_n2.resample('1min').agg({"Flux": 'mean', "Uncertainty": rms_mean})
+
+        #South
+        solo_d1 = {'Time': solo_d.index}
+        solo_d1["Flux"] = weighted_bin_merge(solo_d, 'solo', 'p', bin_list, ['H_Flux','H_Flux_'], bin_width)
+        solo_d1["Uncertainty"] = weighted_bin_merge(solo_d, 'solo', 'p', bin_list, ['H_Uncertainty','H_Uncertainty_'], bin_width)
+
+        solo_d2 = pd.DataFrame.from_dict(solo_d1)
+        solo_d2.set_index('Time', inplace=True)
+        solo_d3 = solo_d2.resample('1min').agg({"Flux": 'mean', "Uncertainty": rms_mean})
+
+        # Make omnidirectional
+        solo_df = {'Time': solo_s3.index}
+        flux_arr, unc_arr = ([] for i in range(2))
+        for tt in solo_s3.index:
+            flux_tmp, unc_tmp = ([] for i in range(2))
+            for dftmp in [solo_s3, solo_a3, solo_n3, solo_d3]:
+                flux_tmp.append(dftmp.loc[tt, 'Flux'])
+                unc_tmp.append(dftmp.loc[tt, 'Uncertainty'])
+
+            flux_arr.append( np.nanmean(flux_tmp) )
+            unc_arr.append( np.nanmean(unc_tmp) )
+        solo_df['Flux'] = flux_arr
+        solo_df['Uncertainty'] = unc_arr
+
+        solo_df1 = pd.DataFrame.from_dict(solo_df)
+        solo_df1.set_index('Time', inplace=True)
+
+
 
         # Resample
-        solo = solo_df3.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
+        solo = solo_df1.resample(resampling).agg({'Flux':'mean', 'Uncertainty': rms_mean})
         if JAX_TESTERS:
-            solo.to_csv(data_path+'solo_rawdata.csv', na_rep='nan')
+            solo.to_csv(data_path+f'solo_rawdata_{dates[0].strftime("%d%b%Y")}.csv', na_rep='nan')
         #solo_sm = pd.concat([solo, sm_df['Solar Orbiter']], axis=1, join='outer')
 
         return solo, energy_range_lbl#_sm
@@ -1069,13 +1129,17 @@ def find_reference_loc(sc_data, sm_data_short):
     """Using the peak values to roughly determine the best connected sc and """
     peak_int = 0
     for sc, sc_df in sc_data.items():
+        print(sc)
         if peak_int < np.nanmax(sc_df['Flux']):
+            print('The peak is now: ', sc)
+            print('The peak int is now: ', np.nanmax(sc_df['Flux']))
             peak_int = np.nanmax(sc_df['Flux'])
             peak_sc = sc
-    # prelim_peak_info = {'sc': peak_sc,
-    #                     'int': peak_int,
-    #                     'loc': sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']}
+
     print(sm_data_short)
+    print(peak_sc)
+    print(sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)'])
+    jax=input('yeah?')
     return sm_data_short.loc[peak_sc, 'Magnetic footpoint longitude (Stonyhurst)']
 
 
@@ -1303,7 +1367,7 @@ def plot_timeseries_result(sc_dict, data_path, date, channel_labels, background_
 
     xmin = date - dt.timedelta(hours=5)
     xmax = date + dt.timedelta(hours=22)
-    ax[0].set_xlim([xmin,xmax])
+    ax[0].set_xlim(left=xmin)#,xmax])
     locator = mpl.dates.AutoDateLocator(minticks=3, maxticks=6)
     ax[n-1].xaxis.set(major_locator=locator, )
     ax[n-1].xaxis.set_major_formatter(mpl.dates.ConciseDateFormatter(locator, show_offset=False))
@@ -1397,7 +1461,7 @@ def plot_peak_intensity(sc_dict, data_path, date, peak_data_results):
     tseries_ax.legend(loc='upper right', fontsize=8)
 
     # Plot the Gaussian Curve
-    x_curve = np.linspace(-180, 180, 200) # JAX: must be adapted
+    x_curve = np.linspace(-360, 360, 300) # JAX: must be adapted
     y_curve = 10**(log_gauss_function(x_curve, peak_data_results['A'], peak_data_results['X0'], peak_data_results['sigma']))
 
     gauss_ax.semilogy(x_curve, y_curve, color='k')
@@ -1421,7 +1485,7 @@ def plot_peak_intensity(sc_dict, data_path, date, peak_data_results):
 
     gauss_ax.set_xlim([xlimits[0]-40, xlimits[1]+40])
     gauss_ax.set_ylim([ylimits[0]*0.5, ylimits[1]*10])
-    tseries_ax.set_xlim(date - dt.timedelta(hours=1), date + dt.timedelta(hours=20))
+    tseries_ax.set_xlim(left=(date - dt.timedelta(hours=1)) )#, date + dt.timedelta(hours=20))
     tseries_ax.xaxis.set_major_formatter(
         mpl.dates.ConciseDateFormatter(tseries_ax.xaxis.get_major_locator(),
                                        show_offset=False))
@@ -1495,7 +1559,7 @@ def plot_curve_and_timeseries(gauss_values, sc_df, full_df, data_path, timestep,
 
     # Add a vertical line in the gaussian curve to indicate the flares initial position (if provided)
     if flare_loc:
-        gauss_ax.axvline(x=flare_loc[0], color='k', linestyle='dashed', linewidth=0.5, alpha=0.9, label=f'Flare at {flare_loc[0]}{DEGREE_TEXT}')
+        gauss_ax.axvline(x=flare_loc[0], color='k', linestyle='dashed', linewidth=0.5, alpha=0.9, label=f'Reference at {flare_loc[0]}{DEGREE_TEXT}')
 
     # Calculate and plot the curve
     x_curve = np.linspace(-360,360,200)
@@ -1590,7 +1654,7 @@ def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, channel_labels, fl
     if not np.isnan(flare_loc[0]):
         ax[1].axhline(y=flare_loc[0],
                       linestyle='dashed', color='k', alpha=0.9, linewidth=0.5,
-                      label=f"Flare at [{flare_loc[0]}, {flare_loc[1]}]{DEGREE_TEXT}")
+                      label=f"Reference at [{flare_loc[0]}, {flare_loc[1]}]{DEGREE_TEXT}")
         ax[1].legend()
 
     # Plot the Gaussian results
@@ -1611,7 +1675,7 @@ def plot_gauss_fits_timeseries(sc_dict, data_path, date, ref, channel_labels, fl
     ax[1].set_ylim([ylimits['center'][0]-20, ylimits['center'][1]+20])
     ax[2].set_ylim([ylimits['sigma'][0]-20, ylimits['sigma'][1]+20])
 
-    ax[2].set_xlim([date - dt.timedelta(hours=1), date + dt.timedelta(hours=20)])
+    ax[2].set_xlim(left=(date - dt.timedelta(hours=1)))#, date + dt.timedelta(hours=20)])
     ax[2].xaxis.set_major_formatter(
         mpl.dates.ConciseDateFormatter(ax[1].xaxis.get_major_locator(),
                                        show_offset=False))
